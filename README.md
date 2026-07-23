@@ -1,5 +1,10 @@
 # @keumbang/openapi-mcp
 
+[![npm](https://img.shields.io/npm/v/@keumbang/openapi-mcp)](https://www.npmjs.com/package/@keumbang/openapi-mcp)
+[![CI](https://github.com/keumbang/keumbang-openapi-mcp/actions/workflows/publish.yml/badge.svg)](https://github.com/keumbang/keumbang-openapi-mcp/actions/workflows/publish.yml)
+[![node](https://img.shields.io/node/v/@keumbang/openapi-mcp)](https://nodejs.org)
+[![license](https://img.shields.io/npm/l/@keumbang/openapi-mcp)](./LICENSE)
+
 금방(Keumbang) Open API **코딩 어시스턴트 MCP 서버**. Claude Desktop · Cursor · Cline 등 MCP 클라이언트에 붙여, 금·은 거래 API 연동 코드를 정확히 짜도록 돕는다.
 
 이 API에서 개발자가 막히는 지점은 필드명이 아니라 **요청 서명**이다 — `query_hash` 입력이 메서드에 따라 갈리고(POST=raw body, GET=정규화 querystring) 업비트 예제를 그대로 옮기면 전부 401이 난다. 이 MCP는 그 절차를 코드로 생성하고 로컬에서 서명/검증까지 해준다.
