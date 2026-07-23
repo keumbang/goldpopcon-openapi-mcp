@@ -1,0 +1,1608 @@
+openapi: 3.1.0
+
+info:
+  title: 금방(Keumbang) Open API
+  version: "1.0.0"
+  summary: 유저가 직접 발급한 API 키로 금·은을 거래하는 공개 API
+  description: |
+    금방 앱 사용자가 앱에서 직접 API 키를 발급받아, 프로그래밍 방식으로 금·은을 거래하고
+    입출금을 처리하는 API다. 업비트/바이낸스의 개인 API 키와 같은 모델이며, 중개하는
+    파트너사가 없다 — **키 소유자 = 거래 주체 = 본인**이다.
+
+    ---
+
+    ## 1. 키 발급
+
+    키는 앱에서 발급한다. `POST /v1/api-keys` 는 앱 로그인 JWT + 거래 인증(생체 grant
+    또는 6자리 PIN)을 통과해야 호출된다. 이 시점의 본인확인이 **이후 모든 API 호출의
+    인증 근거**가 되므로, Open API 호출에는 별도의 생체/PIN 인증이 없다.
+
+    `secret_key` 는 발급 응답에서 **단 한 번만** 내려온다. 서버는 이 값을 AES-256-GCM으로
+    암호화해 보관하며 어떤 경로로도 다시 조회할 수 없다. 분실하면 폐기 후 재발급해야 한다.
+
+    ## 2. 인증 — 요청마다 JWT 서명
+
+    모든 Open API 요청은 `Authorization: Bearer <JWT>` 를 요구한다. 이 JWT는 로그인
+    토큰이 아니라 **요청 하나마다 새로 만드는 서명**이다.
+
+    ```
+    header   { "alg": "HS256", "typ": "JWT" }
+    payload  {
+               "access_key":     "gpk_...",
+               "nonce":          "<uuid-v4>",     // 요청마다 새 값
+               "iat":            <unix seconds>,
+               "exp":            <unix seconds>,
+               "query_hash":     "<sha512 hex>",  // 페이로드가 있을 때만
+               "query_hash_alg": "SHA512"
+             }
+    서명     HMAC-SHA256(secret_key)
+    ```
+
+    HMAC 키는 발급받은 `secret_key` 문자열(`sk_` 접두사 포함) **그대로**의 바이트다.
+    base64 디코딩이나 접두사 제거를 하지 않는다.
+
+    ### query_hash — 업비트와 갈리는 지점
+
+    JWT 구조와 서명 알고리즘은 업비트와 같지만, **`query_hash` 의 입력이 다르다.**
+    업비트 예제 코드를 그대로 옮기면 전부 401이 난다.
+
+    | 메서드 | 해시 입력 |
+    |---|---|
+    | `POST` / `PUT` / `PATCH` | **요청 본문 raw 바이트** |
+    | 그 외 (`GET` / `DELETE`) | 정규화한 querystring |
+
+    업비트는 POST에서도 JSON을 querystring으로 바꿔 해시하지만, 그 변환은 float 표기에서
+    모호하다(`1.0` 과 `1` 이 같은 값인데 다른 문자열이 된다). 그래서 본문은 보낸 바이트
+    그대로 해시한다. **직렬화한 문자열을 그대로 서명하고 그대로 전송해야 한다** — 서명 후
+    본문을 재직렬화하면 공백 하나 차이로도 실패한다.
+
+    정규화 querystring 규칙:
+
+    1. 키를 오름차순 정렬
+    2. 같은 키에 값이 여럿이면 값도 오름차순 정렬
+    3. `k=v` 를 `&` 로 연결
+    4. **퍼센트 디코딩된 값**을 쓴다 (서버가 `URL.Query()` 로 디코딩한 뒤 비교한다).
+       `from=2026-07-21T00%3A00%3A00Z` 는 `from=2026-07-21T00:00:00Z` 로 계산한다
+
+    해시는 SHA512의 **소문자 hex** 문자열이다.
+
+    본문도 쿼리 파라미터도 없는 요청(`GET /open/v1/prices`)은 `query_hash` 와
+    `query_hash_alg` 를 생략한다.
+
+    ### 시각 클레임과 nonce
+
+    - `iat`, `exp` 는 **필수**다. 없으면 401
+    - `exp - iat` 는 최대 **60초**. 더 길면 401
+    - `iat` 가 현재보다 **30초** 넘게 미래면 401 (시계 오차 허용치)
+    - `nonce` 는 키별로 1회용이다. 재사용하면 401. 유효 기간 **180초**
+
+    nonce 유효 기간(180초)이 토큰 최대 수명(60초) + 시계 오차(30초)보다 길다. 이 관계가
+    깨지면 nonce 만료 직후 토큰 재생이 가능해지므로 서버 부팅 시 강제 검증한다.
+
+    ### 401 진단
+
+    인증 실패는 원인을 구분하지 않고 모두 `401 / "인증에 실패했습니다"` 로 응답한다.
+    "키 없음"과 "서명 불일치"를 구분해 주면 공격자가 유효한 `access_key` 를 탐색할 수 있다.
+    로컬에서 서명값을 재계산해 대조하는 것이 유일한 진단 방법이다.
+
+    ## 3. 권한 스코프
+
+    키마다 세 플래그가 독립적으로 켜진다. 시세 조회는 플래그 없이 모든 키에 허용된다.
+
+    | 플래그 | 기본값 | 대상 |
+    |---|---|---|
+    | `allow_trade` | 켜짐 | `/buy/*`, `/sell/*` |
+    | `allow_vacct` | 꺼짐 | `/virtual-accounts` |
+    | `allow_payout` | **꺼짐** | `/payouts` |
+
+    권한이 없으면 403이다. 401(인증 실패)과 구분된다 — 403은 서명이 유효했다는 뜻이다.
+
+    ## 4. 한도
+
+    | 항목 | 단위 | 미지정 시 |
+    |---|---|---|
+    | `per_request_trade_limit` | 원 | 무제한 |
+    | `per_request_payout_limit` | 원 | 무제한 |
+    | `daily_trade_limit` | 원 | 무제한 |
+    | `daily_payout_limit` | 원 | 무제한 |
+
+    일일 한도는 **성공(2xx) 요청만** 집계한다. 실패한 요청이 한도를 갉아먹지 않는다.
+    정산 근거는 서버의 요청 로그다.
+
+    ## 5. Rate limit
+
+    버킷이 스코프별로 나뉜다. 시세 폴링이 거래 한도를 잠식하지 않게 하기 위함이다.
+
+    | 버킷 | 대상 | 기본값 |
+    |---|---|---|
+    | `quote` | `/prices`, `/prices/history`, `/balances` | 600 회/분 |
+    | `trade` | 나머지 전부 | 60 회/분 |
+
+    고정 윈도(매분 0초 리셋)다. 모든 응답에 `X-RateLimit-Limit`,
+    `X-RateLimit-Remaining`, `X-RateLimit-Reset` 이 실린다. 초과하면 429 +
+    `Retry-After`.
+
+    ## 6. 멱등성
+
+    자금이 움직이는 요청(`/buy/*`, `/sell/*`, `/virtual-accounts`, `/payouts`)은
+    `Idempotency-Key` 헤더가 **필수**다. **UUID v4 형식만** 허용한다.
+
+    같은 키로 재요청하면 최초 응답을 그대로 재현하고 `Idempotent-Replay: true` 헤더를
+    붙인다. 주문은 다시 체결되지 않는다.
+
+    키 범위는 **유저 단위**다. 같은 유저가 두 개의 API 키를 써도 같은 멱등키는 한 번만
+    실행된다.
+
+    > **재시도 주의** — 네트워크 오류로 응답을 못 받았을 때는 **같은** `Idempotency-Key` 로
+    > 재시도해야 한다. 새 키로 재시도하면 서버는 별개 주문으로 처리해 이중 체결된다.
+
+    ## 7. 단위
+
+    금방 내부 시세는 금이 **1돈(3.75g)** 단위, 은이 **1g** 단위로 들어온다.
+    반면 **주문 수량은 금·은 모두 g** 이다.
+
+    이 API는 금 시세를 원본(`*_per_don`)과 g 환산값(`*_per_gram`)으로 함께 내려준다.
+    환산은 `가격 ÷ 3.75` 의 **정수 절사**이며, 주문 체결 경로와 동일한 규칙이다. 따라서
+    `gold.ask_per_gram` 을 그대로 예상 체결 단가로 쓸 수 있다.
+
+    수량은 소수 g 를 허용한다(예: `0.01`).
+
+    ## 8. 응답 봉투
+
+    성공:
+
+    ```json
+    { "success": true, "message": "Successfully get prices", "data": { } }
+    ```
+
+    실패는 두 형태가 있다. 핸들러가 낸 도메인 에러는 `error` 에 코드가 담기고,
+    미들웨어가 낸 에러(인증·rate limit)는 `error` 가 `null` 이며 `message` 만 있다.
+
+    ```json
+    { "success": false, "message": "failed to create order",
+      "error": { "code": "P0001", "error": "지갑 잔액이 부족합니다" } }
+
+    { "success": false, "message": "인증에 실패했습니다", "error": null }
+    ```
+
+    ## 9. 에러 코드
+
+    | 코드 | 상태 | 의미 |
+    |---|---|---|
+    | `U0005` | 400 | 입력 형식 오류 |
+    | `N0001` | 404 | 리소스 없음 (마켓 등) |
+    | `S0001` | 500·502·503 | 서버 또는 상류 시스템 오류 |
+    | `K0001` | 400 | label 누락 또는 길이 초과 |
+    | `K0002` | 400 | ip_whitelist 형식 오류 |
+    | `K0003` | 400 | 한도 값이 음수 |
+    | `K0004` | 409 | 유저당 키 개수 상한 초과 |
+    | `K0005` | 404 | 키를 찾을 수 없음 (타 유저 키 포함) |
+    | `K0006` | 409 | 이미 폐기된 키 |
+    | `L0001` | 403 | 금액 한도 초과 (건당 또는 일일). `error` 에 상세가 실린다 |
+
+    > **잔액 부족은 500이다.** 매수 시 원화가 모자라거나 매도 시 보유 수량이 모자라면
+    > 상류 이체 시스템의 실패로 뭉뚱그려져 `500 / S0001` 로 내려온다. 전용 코드가 아직
+    > 없으므로 400을 기대하고 분기하면 안 된다. 주문 전에
+    > `GET /open/v1/prices` 로 예상 금액을 계산해 두는 편이 안전하다.
+
+  contact:
+    name: 금방
+    email: product@keumbang.com
+
+servers:
+  - url: https://api.staging.example.com/api
+    description: staging
+  - url: http://localhost:9998/api
+    description: 로컬 개발
+
+security:
+  - ApiKeyJWT: []
+
+tags:
+  - name: prices
+    description: 시세 조회. 권한 플래그 없이 모든 키에 허용된다
+  - name: balances
+    description: 잔고·평가손익 조회. 권한 플래그 없이 모든 키에 허용된다
+  - name: trade
+    description: 금·은 매수·매도. `allow_trade` 필요
+  - name: cash
+    description: 가상계좌 발급·출금. 각각 `allow_vacct` / `allow_payout` 필요
+  - name: api-keys
+    description: |
+      키 관리. **Open API가 아니라 앱 내부 경로**다. 앱 로그인 JWT로 호출하며
+      API 키 서명으로는 접근할 수 없다.
+
+paths:
+  /open/v1/prices:
+    get:
+      tags: [prices]
+      operationId: getPrices
+      summary: 금·은 시세 조회
+      description: |
+        금 시세, 은 시세, 거래 가능 여부를 한 응답에 담는다. 주문 하나를 내는 데 필요한
+        세 값을 왕복 한 번으로 받고, 세 값의 시점 불일치를 없애기 위해서다.
+
+        시세가 아직 수신되지 않았으면 추정값을 주지 않고 503으로 실패한다. 봇은 화면을
+        보지 않으므로 잘못된 값이 그대로 주문이 된다.
+
+        쿼리 파라미터가 없으므로 `query_hash` 를 생략한다.
+      responses:
+        "200":
+          description: 성공
+          headers:
+            X-RateLimit-Limit: { $ref: "#/components/headers/RateLimitLimit" }
+            X-RateLimit-Remaining: { $ref: "#/components/headers/RateLimitRemaining" }
+            X-RateLimit-Reset: { $ref: "#/components/headers/RateLimitReset" }
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data: { $ref: "#/components/schemas/Prices" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "503":
+          description: |
+            시세 미수신, 또는 nonce 저장소 장애. 후자는 재생 공격을 막을 수 없는 상태라
+            의도적으로 요청을 거부한다(fail-closed).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+
+  /open/v1/balances:
+    get:
+      tags: [balances]
+      operationId: getBalances
+      summary: 잔고·평가손익 조회
+      description: |
+        원화와 금·은 보유 수량, 그리고 금·은의 평가손익과 수익률을 반환한다.
+
+        권한 플래그를 요구하지 않는다. 본인 자산 조회이므로 시세와 같은 `quote` 버킷을
+        쓴다 — 주문 전에 매번 확인하는 값이라 호출 빈도가 시세에 가깝다.
+
+        ### 주문에 쓸 수량은 `available`이다
+
+        `balance_gram` 이 아니라 `available_gram` 으로 주문해야 한다. 그 차이가
+        `locked_gram` — 미체결 매도 주문에 묶인 수량이다. 현금도 같다
+        (`krw` 가 아니라 `krw_available`).
+
+        ### 평가 수량은 보유 수량과 다를 수 있다
+
+        매입 단가를 알 수 없는 보유분(무상 적립 등)은 손익 계산에서 빠진다.
+        그래서 `valued_gram <= balance_gram` 이다. **`valued_gram` 으로 전량 매도하면
+        잔량이 남는다.**
+
+        ### 평가 단가는 매수가(ask)다
+
+        `eval_price_per_gram` 은 현재 **매수가**이며, 앱 화면과 같은 산식이다.
+        지금 팔아서 받을 금액이 필요하면 `bid_per_gram × valued_gram` 으로 직접
+        계산해야 한다. 둘의 차이가 스프레드다.
+
+        ### `valued: false` 를 손익 0으로 읽지 말 것
+
+        시세 미수신이거나 보유가 없으면 평가를 못 한다. 이때 평가 관련 값은 전부 0이지만
+        "손익이 0" 이라는 뜻이 아니다. `valued` 로 구분한다.
+      responses:
+        "200":
+          description: 성공
+          headers:
+            X-RateLimit-Limit: { $ref: "#/components/headers/RateLimitLimit" }
+            X-RateLimit-Remaining: { $ref: "#/components/headers/RateLimitRemaining" }
+            X-RateLimit-Reset: { $ref: "#/components/headers/RateLimitReset" }
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data: { $ref: "#/components/schemas/Balances" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "503":
+          description: |
+            잔고를 조회할 수 없다(상류 지갑 시스템 장애). 추정값을 주지 않고 실패한다 —
+            봇은 화면을 보지 않으므로 잘못된 잔고가 그대로 주문이 된다.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+
+  /open/v1/prices/history:
+    get:
+      tags: [prices]
+      operationId: getPriceHistory
+      summary: 시세 이력(OHLC 캔들) 조회
+      description: |
+        `bid` / `ask` OHLC를 모두 내려준다. 매수는 ask, 매도는 bid 관점이 필요하므로
+        한쪽만 고르지 않는다.
+
+        값은 전부 **원/g 정수**다. 금 원본은 1돈 단위지만 실시간 시세와 같은 절사 규칙으로
+        환산해 두 응답을 직접 비교할 수 있게 했다.
+
+        서명 시 `query_hash` 는 정규화한 querystring으로 계산한다. 예를 들어
+        `?bucket=1h&asset=gold` 는 키 정렬 후 `asset=gold&bucket=1h` 를 해시한다.
+
+        상류(price-server)에 IP당 분당 30회 제한이 있어 응답을 캐시한다. 캐시 수명은
+        버킷 길이에 비례한다(`1m` 10초 ~ `1d` 5분).
+      parameters:
+        - name: asset
+          in: query
+          required: true
+          description: 조회 자산
+          schema:
+            type: string
+            enum: [gold, silver]
+        - name: bucket
+          in: query
+          required: false
+          description: 캔들 간격. 생략하면 조회 범위에 맞춰 서버가 고른다
+          schema:
+            type: string
+            enum: ["1m", "5m", "15m", "30m", "1h", "1d"]
+        - name: from
+          in: query
+          required: false
+          description: 시작 시각(RFC3339). 기본값은 24시간 전
+          schema: { type: string, format: date-time }
+        - name: to
+          in: query
+          required: false
+          description: 종료 시각(RFC3339). 기본값은 현재
+          schema: { type: string, format: date-time }
+      responses:
+        "200":
+          description: 성공
+          headers:
+            X-RateLimit-Limit: { $ref: "#/components/headers/RateLimitLimit" }
+            X-RateLimit-Remaining: { $ref: "#/components/headers/RateLimitRemaining" }
+            X-RateLimit-Reset: { $ref: "#/components/headers/RateLimitReset" }
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data: { $ref: "#/components/schemas/PriceHistory" }
+        "400":
+          description: |
+            `asset` 이 gold/silver가 아님, `bucket` 이 허용값 밖, 시각 형식 오류,
+            `from >= to`, 또는 조회 범위가 1년 초과
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "502":
+          description: 상류 시세 서버 호출 실패. 에러 메시지에 상태 코드와 호출 URL이 포함된다
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "503":
+          description: |
+            nonce 저장소 장애. 재생 공격을 막을 수 없는 상태라 의도적으로 거부한다
+            (fail-closed).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+
+  /open/v1/orders/preview:
+    get:
+      tags: [trade]
+      operationId: getOrderPreview
+      summary: 주문 가능 수량 조회
+      description: |
+        "지금 이 방향으로 최대 얼마나 낼 수 있는가" 한 가지에 답한다.
+
+        `allow_trade` 권한이 필요하고 `trade` 버킷(60회/분)을 쓴다. 조회만 하므로
+        `Idempotency-Key` 는 필요 없다. 거래할 수 없는 키에 잔고와 한도를 알려줄
+        이유가 없어 시세와 달리 권한을 요구한다.
+
+        ### 왜 필요한가
+
+        `/balances` 와 `/prices` 로 직접 계산하면 두 가지가 빠진다.
+
+        1. **키의 한도를 알 수 없다.** 건당·일일 한도는 Open API 로 조회할 방법이
+           없어서, 지금까지는 403을 맞아 봐야 알 수 있었다
+        2. 잔고와 시세를 따로 받으면 두 값의 시점이 어긋난다
+
+        ### 반영되는 제약
+
+        | 방향 | 제약 |
+        |---|---|
+        | 매수 | 현금 잔액 − **미체결 매수 주문의 증거금** |
+        | 매도 | 자산 보유량 − **미체결 매도 주문에 묶인 수량** |
+        | 공통 | 키의 건당 한도, 일일 한도(오늘 사용분 차감) |
+
+        금·은에 같은 규칙이 적용된다.
+
+        **가장 빡빡한 제약이 이긴다.** 무엇이 이겼는지는 `limited_by` 에 담긴다.
+
+        ### 주문 검증과 같은 계산이다
+
+        여기서 통과라고 한 수량은 주문 경로에서도 통과한다 — 두 경로가 같은 함수를
+        쓴다. 다만 **조회 시점 기준**이라 시세가 바뀌거나 그 사이 다른 주문이
+        들어오면 달라진다. 최대치를 그대로 주문하면 경계에서 실패할 수 있으므로
+        약간 낮춰 잡는 편이 안전하다.
+
+        ### 서명
+
+        쿼리 파라미터가 있으므로 `query_hash` 는 정규화 querystring으로 계산한다.
+        `?side=buy&asset=gold` 는 키 정렬 후 `asset=gold&side=buy` 를 해시한다.
+      parameters:
+        - name: side
+          in: query
+          required: true
+          description: 주문 방향
+          schema:
+            type: string
+            enum: [buy, sell]
+        - name: asset
+          in: query
+          required: true
+          description: 자산
+          schema:
+            type: string
+            enum: [gold, silver]
+      responses:
+        "200":
+          description: 성공
+          headers:
+            X-RateLimit-Limit: { $ref: "#/components/headers/RateLimitLimit" }
+            X-RateLimit-Remaining: { $ref: "#/components/headers/RateLimitRemaining" }
+            X-RateLimit-Reset: { $ref: "#/components/headers/RateLimitReset" }
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data: { $ref: "#/components/schemas/OrderPreview" }
+        "400":
+          description: "`side` 가 buy/sell 이 아니거나 `asset` 이 gold/silver 가 아님 (`U0005`)"
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/MarketNotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "503":
+          description: |
+            시세 미수신이거나 잔고를 조회할 수 없다. 추정값을 주지 않고 실패한다 —
+            잘못된 최대치는 그대로 주문이 된다.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+
+  /open/v1/buy/{asset}:
+    post:
+      tags: [trade]
+      operationId: buyAsset
+      summary: 금·은 매수
+      description: |
+        골드팝콘과 직접 체결한다. 호가창을 거치지 않으므로 부분 체결이 없다 — 요청 수량
+        전량이 체결되거나 요청이 실패한다.
+
+        체결 단가는 요청 시점의 ask 시세다. `GET /open/v1/prices` 의
+        `gold.ask_per_gram` / `silver.ask_per_gram` 과 같은 값이며, 시세가 그 사이에
+        갱신되면 달라질 수 있다.
+
+        `allow_trade` 권한과 `Idempotency-Key` 헤더가 필요하다.
+      parameters:
+        - $ref: "#/components/parameters/AssetPath"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TradeRequest" }
+            examples:
+              소액매수:
+                summary: 금 0.01g 매수
+                value: { quantity: 0.01 }
+      responses:
+        "200": { $ref: "#/components/responses/OrderCreated" }
+        "400": { $ref: "#/components/responses/TradeBadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/MarketNotFound" }
+        "409": { $ref: "#/components/responses/IdempotencyConflict" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/TradeFailed" }
+        "503": { $ref: "#/components/responses/StoreUnavailable" }
+
+  /open/v1/sell/{asset}:
+    post:
+      tags: [trade]
+      operationId: sellAsset
+      summary: 금·은 매도
+      description: |
+        골드팝콘과 직접 체결한다. 체결 단가는 요청 시점의 bid 시세이며
+        `GET /open/v1/prices` 의 `*_per_gram` bid 값과 같다.
+
+        보유 수량이 부족하면 실패한다. `allow_trade` 권한과 `Idempotency-Key` 헤더가
+        필요하다.
+      parameters:
+        - $ref: "#/components/parameters/AssetPath"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TradeRequest" }
+            examples:
+              소액매도:
+                summary: 금 0.01g 매도
+                value: { quantity: 0.01 }
+      responses:
+        "200": { $ref: "#/components/responses/OrderCreated" }
+        "400": { $ref: "#/components/responses/TradeBadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/MarketNotFound" }
+        "409": { $ref: "#/components/responses/IdempotencyConflict" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/TradeFailed" }
+        "503": { $ref: "#/components/responses/StoreUnavailable" }
+
+  /open/v1/virtual-accounts:
+    post:
+      tags: [cash]
+      operationId: createVirtualAccount
+      summary: 입금용 가상계좌 발급
+      description: |
+        원화 입금을 받을 가상계좌를 발급한다. 계좌번호는 **이 응답에 바로 담겨 온다** —
+        별도 조회가 필요 없다.
+
+        금액을 미리 정하지 않는다. 실제 금액은 입금하는 시점에 확정된다.
+
+        ### ⚠️ 계좌는 10분 뒤 만료된다
+
+        `vacct_expire_at` 을 반드시 확인해야 한다. 발급 시점부터 **600초** 짜리 임시
+        계좌이고, 만료 후 입금하면 정상 처리되지 않는다. 입금 직전에 발급하는 것이
+        맞고, 미리 받아 두고 나중에 쓰면 안 된다.
+
+        ### 입금 반영은 비동기다
+
+        이 응답은 "계좌가 만들어졌다" 까지만 뜻한다. 실제 입금이 확인되면 정산 시스템이
+        콜백하고 그때 지갑 잔액이 오른다. 잔액 확인은 `GET /open/v1/balances` 로 폴링한다.
+
+        ### 요청
+
+        본문이 없다. 서버가 필요한 값을 모두 채우며 본문을 보내도 무시된다.
+        따라서 `query_hash` 를 생략한다.
+
+        `allow_vacct` 권한(기본 꺼짐)과 `Idempotency-Key` 헤더가 필요하다.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: |
+            발급 성공. 계좌번호·은행코드·만료시각이 함께 온다.
+
+            본문은 정산 시스템 응답의 통과분이라 아래 나열한 것 외의 필드가 더 올 수
+            있다. 나열된 필드는 계약으로 보증한다.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/PassthroughEnvelope"
+                  - type: object
+                    properties:
+                      data: { $ref: "#/components/schemas/VirtualAccount" }
+        "400": { $ref: "#/components/responses/IdempotencyBadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/IdempotencyConflict" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "503": { $ref: "#/components/responses/StoreUnavailable" }
+
+  /open/v1/payouts:
+    post:
+      tags: [cash]
+      operationId: createPayout
+      summary: 출금 신청
+      description: |
+        지갑의 원화를 출금한다.
+
+        **출금 계좌를 요청으로 지정할 수 없다.** 서버가 앱에서 미리 등록·검증한 본인 명의
+        계좌를 사용한다. 이 고정이 키 유출 시 자금 탈취를 막는 핵심 장치다 — 키를 훔쳐도
+        돈은 키 소유자 본인 계좌로만 나간다.
+
+        `allow_payout` 권한(기본 꺼짐)과 `Idempotency-Key` 헤더가 필요하다.
+
+        응답 본문은 정산 시스템 응답의 통과분이라 이 스펙이 구조를 보증하지 않는다.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PayoutRequest" }
+            examples:
+              만원출금:
+                value: { cash_amount: 10000 }
+      responses:
+        "200":
+          description: 신청 접수. 본문은 정산 시스템 응답의 통과분이다
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PassthroughEnvelope" }
+        "400":
+          description: |
+            `cash_amount` 가 0 이하이거나 형식 오류(`U0005`), 또는 `Idempotency-Key`
+            누락·형식 오류.
+
+            잔액 부족과 정산 시스템의 거절은 상류 응답을 그대로 통과시키므로 상태 코드가
+            이 목록과 다를 수 있다.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/IdempotencyConflict" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "503": { $ref: "#/components/responses/StoreUnavailable" }
+
+  /v1/api-keys:
+    post:
+      tags: [api-keys]
+      operationId: createApiKey
+      summary: API 키 발급
+      description: |
+        **앱 내부 경로다.** 앱 로그인 JWT(`Authorization: Bearer <access token>`)와
+        거래 인증을 함께 요구한다. API 키 서명으로는 호출할 수 없다.
+
+        거래 인증은 둘 중 하나다.
+
+        - `X-Tx-Auth: <생체 인증 grant 토큰>` 헤더
+        - 요청 본문의 `password` 필드 (6자리 PIN)
+
+        `secret_key` 는 이 응답에서만 노출된다. 서버는 암호화 보관하며 재조회 경로가 없다.
+
+        유저당 키 개수 상한은 5개, 기본 만료는 365일이다.
+      security:
+        - AppJWT: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateApiKeyRequest" }
+            examples:
+              거래전용:
+                summary: 거래만 허용하는 키
+                value: { label: "trading-bot", allow_trade: true }
+              MCP용_읽기전용:
+                summary: 시세만 읽는 키
+                value:
+                  label: "mcp-readonly"
+                  allow_trade: false
+                  allow_vacct: false
+                  allow_payout: false
+              출금포함:
+                summary: 출금까지 허용하고 한도를 거는 키
+                value:
+                  label: "ops"
+                  allow_payout: true
+                  ip_whitelist: ["203.0.113.10"]
+                  daily_payout_limit: 1000000
+                  per_request_payout_limit: 200000
+      responses:
+        "201":
+          description: 발급 성공. `secret_key` 는 여기서만 내려온다
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data: { $ref: "#/components/schemas/ApiKeyWithSecret" }
+        "400":
+          description: 검증 실패 (`K0001` label, `K0002` ip_whitelist, `K0003` 음수 한도)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "401":
+          description: 앱 로그인 토큰이 없거나 유효하지 않음
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "403":
+          description: 거래 인증(생체 grant 또는 PIN) 실패
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "409":
+          description: 유저당 키 개수 상한 초과 (`K0004`)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+
+    get:
+      tags: [api-keys]
+      operationId: listApiKeys
+      summary: 내 API 키 목록
+      description: |
+        **앱 내부 경로다.** 앱 로그인 JWT로 호출한다.
+
+        `secret_key` 는 포함되지 않는다 — 응답 구조체 자체에 필드가 없다.
+      security:
+        - AppJWT: []
+      responses:
+        "200":
+          description: 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: "#/components/schemas/ApiKey" }
+        "401":
+          description: 앱 로그인 토큰이 없거나 유효하지 않음
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+
+  /v1/api-keys/{id}/logs:
+    get:
+      tags: [api-keys]
+      operationId: getApiKeyLogs
+      summary: API 키 사용 이력
+      description: |
+        **앱 내부 경로다.** 앱 로그인 JWT로 호출한다. 조회만 하므로 거래 인증은 없다.
+
+        이 키로 들어온 모든 요청을 최신순으로 반환한다 — 거래·출금·가상계좌·시세 전부다.
+
+        출금과 가상계좌는 정산 시스템 소유라 로컬 주문 레코드가 없다. 그래서 "이 키가
+        무엇을 했는지" 를 확인할 수 있는 유일한 경로가 이 엔드포인트다. 키 폐기 판단의
+        근거로 쓴다.
+
+        `client_ip` 와 `idempotency_key` 는 내부에 기록되지만 노출하지 않는다.
+      security:
+        - AppJWT: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: 키의 `id` (`access_key` 가 아니다)
+          schema: { type: string, format: uuid }
+        - name: limit
+          in: query
+          required: false
+          description: 최대 200. 기본 50
+          schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+        - name: offset
+          in: query
+          required: false
+          schema: { type: integer, minimum: 0, default: 0 }
+      responses:
+        "200":
+          description: 성공. `meta` 에 전체 건수와 페이지 정보가 담긴다
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: "#/components/schemas/ApiKeyLog" }
+                      meta:
+                        type: object
+                        properties:
+                          total: { type: integer, description: 페이지가 아닌 전체 건수 }
+                          limit: { type: integer }
+                          offset: { type: integer }
+        "401":
+          description: 앱 로그인 토큰이 없거나 유효하지 않음
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "404":
+          description: 키를 찾을 수 없음. 타 유저의 키도 동일하게 404다 (`K0005`)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+
+  /v1/api-keys/{id}:
+    delete:
+      tags: [api-keys]
+      operationId: revokeApiKey
+      summary: API 키 폐기
+      description: |
+        **앱 내부 경로다.** 되돌릴 수 없으므로 발급과 동일한 거래 인증
+        (`X-Tx-Auth` 헤더 또는 본문 `password`)을 요구한다.
+
+        폐기 즉시 해당 키의 모든 요청이 403이 된다.
+      security:
+        - AppJWT: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: 폐기할 키의 `id` (`access_key` 가 아니다)
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: 폐기 완료
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          id: { type: string, format: uuid }
+                          status: { type: string, const: revoked }
+        "401":
+          description: 앱 로그인 토큰이 없거나 유효하지 않음
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "403":
+          description: 거래 인증 실패
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "404":
+          description: 키를 찾을 수 없음. 타 유저의 키도 동일하게 404다 (`K0005`)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "409":
+          description: 이미 폐기된 키 (`K0006`)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+
+components:
+  securitySchemes:
+    ApiKeyJWT:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        요청마다 새로 생성하는 HMAC-SHA256 서명 JWT. 로그인 토큰이 아니다.
+        생성 규칙은 이 문서 상단 "2. 인증" 절 참조.
+
+    AppJWT:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        앱 로그인으로 받은 access token. `/v1/api-keys` 경로에만 쓴다.
+
+  parameters:
+    AssetPath:
+      name: asset
+      in: path
+      required: true
+      description: 거래 자산
+      schema:
+        type: string
+        enum: [gold, silver]
+
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: |
+        UUID v4. 필수이며 형식이 어긋나면 400이다.
+        같은 키로 재요청하면 최초 응답을 재현하고 `Idempotent-Replay: true` 를 붙인다.
+        범위는 유저 단위라 다른 API 키를 써도 중복 실행되지 않는다.
+      schema:
+        type: string
+        format: uuid
+      example: 8b6c3a4e-9a2f-4c1b-8e7d-5f0a1b2c3d4e
+
+  headers:
+    RateLimitLimit:
+      description: 현재 버킷의 분당 허용 횟수
+      schema: { type: integer }
+    RateLimitRemaining:
+      description: 이번 윈도의 잔여 횟수
+      schema: { type: integer }
+    RateLimitReset:
+      description: 윈도가 리셋되는 시각(Unix seconds)
+      schema: { type: integer, format: int64 }
+    IdempotentReplay:
+      description: 저장된 최초 응답을 재현했을 때 `true`
+      schema: { type: string, const: "true" }
+
+  responses:
+    Unauthorized:
+      description: |
+        서명 검증 실패. 원인을 구분하지 않는다 — 토큰 없음, 서명 불일치, `query_hash`
+        불일치, `iat`/`exp` 누락, 수명 초과, nonce 재사용, 존재하지 않는 `access_key` 가
+        모두 같은 응답이다.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+          example:
+            success: false
+            message: 인증에 실패했습니다
+            error: null
+
+    Forbidden:
+      description: |
+        서명은 유효하지만 권한이 없다. 키에 해당 스코프 플래그가 꺼졌거나, 폐기·만료된
+        키이거나, IP 화이트리스트 밖에서 호출했거나, 금액 한도를 초과했다.
+
+        금액 한도(건당·일일) 초과일 때만 `error` 에 상세가 실린다:
+
+        | 필드 | 뜻 |
+        |---|---|
+        | `limit_krw` | 걸린 한도(건당 또는 일일) |
+        | `requested_krw` | 이번 요청의 금액. 매수·매도는 수량×시세 추정치 |
+        | `remaining_krw` | 일일 한도의 남은 금액. 건당 초과일 때는 0 |
+
+        추정치는 위험 상한 판정용이다. 실제 체결 금액은 시세가 움직이면 조금 달라지며,
+        일일 한도 정산의 근거는 감사 로그의 실제 체결 금액이다.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+          examples:
+            permission:
+              summary: 권한 없음·폐기·IP 등
+              value:
+                success: false
+                message: 이 API 키에는 해당 권한이 없습니다
+                error: null
+            limit_exceeded:
+              summary: 일일 한도 초과
+              value:
+                success: false
+                message: 일일 한도를 초과했습니다
+                error:
+                  code: L0001
+                  limit_krw: 1000000
+                  requested_krw: 300000
+                  remaining_krw: 200000
+
+    RateLimited:
+      description: 분당 호출 한도 초과
+      headers:
+        Retry-After:
+          description: 재시도까지 대기할 초
+          schema: { type: integer }
+        X-RateLimit-Limit: { $ref: "#/components/headers/RateLimitLimit" }
+        X-RateLimit-Remaining: { $ref: "#/components/headers/RateLimitRemaining" }
+        X-RateLimit-Reset: { $ref: "#/components/headers/RateLimitReset" }
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+
+    IdempotencyConflict:
+      description: |
+        같은 `Idempotency-Key` 의 최초 요청이 아직 처리 중이다. 완료 후 같은 키로
+        재시도하면 저장된 응답이 재현된다.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+
+    IdempotencyBadRequest:
+      description: |
+        `Idempotency-Key` 헤더가 없거나 UUID v4 형식이 아니다.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+          example:
+            success: false
+            message: Idempotency-Key 는 UUID v4 형식이어야 합니다
+            error: null
+
+    TradeBadRequest:
+      description: |
+        `quantity` 가 없거나 0 이하, 자산이 gold/silver가 아님(`U0005`), 또는
+        `Idempotency-Key` 누락·형식 오류.
+
+        **잔액 부족은 여기가 아니다** — 500으로 내려온다.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+
+    MarketNotFound:
+      description: 해당 자산의 마켓을 찾을 수 없음 (`N0001`)
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+
+    TradeFailed:
+      description: |
+        체결 실패 (`S0001`). **원화 잔액 부족과 보유 수량 부족이 여기 포함된다** —
+        상류 이체 시스템의 실패로 뭉뚱그려지며 전용 코드가 아직 없다.
+        시세 조회 실패나 원장 오류도 같은 응답이다.
+
+        운영 모드에서는 본문이 `{"success": false, "message": "Something went wrong",
+        "error": null}` 로 마스킹된다.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+
+    StoreUnavailable:
+      description: |
+        멱등성 저장소에 접근할 수 없다. 멱등성을 보장할 수 없는 상태에서 자금 이동을
+        허용하지 않으므로 의도적으로 거부한다(fail-closed). 같은 `Idempotency-Key` 로
+        재시도해도 안전하다.
+
+        같은 상태 코드가 nonce 저장소 장애일 수도 있다. 그 경우 요청은 실행되지 않았다.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+
+    OrderCreated:
+      description: 전량 체결
+      headers:
+        Idempotent-Replay: { $ref: "#/components/headers/IdempotentReplay" }
+        X-RateLimit-Limit: { $ref: "#/components/headers/RateLimitLimit" }
+        X-RateLimit-Remaining: { $ref: "#/components/headers/RateLimitRemaining" }
+        X-RateLimit-Reset: { $ref: "#/components/headers/RateLimitReset" }
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/SuccessEnvelope"
+              - type: object
+                properties:
+                  data: { $ref: "#/components/schemas/Order" }
+
+  schemas:
+    SuccessEnvelope:
+      type: object
+      required: [success, message, data]
+      properties:
+        success: { type: boolean, const: true }
+        message: { type: string, description: 사람이 읽는 설명. 분기 조건으로 쓰지 말 것 }
+        data: {}
+
+    ErrorEnvelope:
+      type: object
+      required: [success, message, error]
+      properties:
+        success: { type: boolean, const: false }
+        message: { type: string }
+        error:
+          description: |
+            핸들러가 낸 도메인 에러면 객체, 미들웨어(인증·rate limit)가 낸 에러면 `null`.
+          oneOf:
+            - $ref: "#/components/schemas/ErrorDetail"
+            - type: "null"
+
+    ErrorDetail:
+      type: object
+      required: [code]
+      properties:
+        code:
+          type: string
+          description: 이 문서 "9. 에러 코드" 표 참조. 분기는 이 값으로 한다
+          examples: ["U0005", "P0001", "K0004"]
+        error:
+          description: 원인 메시지. 문자열이거나 필드별 검증 오류 객체다
+        messages:
+          type: array
+          items: { type: string }
+        stack: { type: string }
+        limit_krw:
+          type: integer
+          description: "`L0001` 전용. 걸린 한도(건당 또는 일일)"
+        requested_krw:
+          type: integer
+          description: "`L0001` 전용. 이번 요청 금액(매수·매도는 수량×시세 추정치)"
+        remaining_krw:
+          type: integer
+          description: "`L0001` 전용. 일일 한도 잔여분. 건당 초과일 때는 0"
+
+    PassthroughEnvelope:
+      type: object
+      description: |
+        정산 시스템 응답을 그대로 통과시킨 것이라 이 스펙이 구조를 보증하지 않는다.
+      properties:
+        success: { type: boolean }
+        message: { type: string }
+        data:
+          type: object
+          additionalProperties: true
+          properties:
+            contract_id:
+              type: string
+              description: 가상계좌 발급 시 항상 존재한다. 입금 확정 콜백과 이어지는 식별자
+      additionalProperties: true
+
+    Change24h:
+      type: object
+      description: 24시간 전 대비 변동폭. 부호 있는 정수이며 단위는 해당 시세와 같다
+      required: [bid, ask]
+      properties:
+        bid: { type: integer, format: int64 }
+        ask: { type: integer, format: int64 }
+
+    GoldQuote:
+      type: object
+      description: |
+        금 시세. 원본은 1돈(3.75g) 단위이며 g 환산값을 함께 싣는다.
+      required: [bid_per_don, ask_per_don, bid_per_gram, ask_per_gram, change_24h]
+      properties:
+        bid_per_don:
+          type: integer
+          format: int64
+          description: 매도(bid) 단가. 원/돈
+        ask_per_don:
+          type: integer
+          format: int64
+          description: 매수(ask) 단가. 원/돈
+        bid_per_gram:
+          type: integer
+          format: int64
+          description: |
+            `bid_per_don ÷ 3.75` 의 정수 절사. 매도 체결 단가와 같은 규칙이다
+        ask_per_gram:
+          type: integer
+          format: int64
+          description: |
+            `ask_per_don ÷ 3.75` 의 정수 절사. **매수 체결 단가와 같은 규칙**이라
+            그대로 예상가로 쓸 수 있다
+        change_24h: { $ref: "#/components/schemas/Change24h" }
+
+    SilverQuote:
+      type: object
+      description: 은 시세. 원본이 이미 1g 단위라 환산이 없다
+      required: [bid_per_gram, ask_per_gram, change_24h]
+      properties:
+        bid_per_gram: { type: integer, format: int64, description: 원/g }
+        ask_per_gram: { type: integer, format: int64, description: 원/g }
+        change_24h: { $ref: "#/components/schemas/Change24h" }
+
+    TradingWindow:
+      type: object
+      description: |
+        거래 가능 여부.
+
+        > 현 구현에서 `is_buy_open` / `is_sell_open` 은 **항상 `true`** 다. 거래시간
+        > 제어 로직이 아직 들어오지 않았다. 필드는 미리 노출해 두었으므로 로직이 들어오면
+        > 자동 반영된다. 지금 이 값에 의존해 분기하지 말 것.
+      required: [is_buy_open, is_sell_open, next_open_at, next_closed_at]
+      properties:
+        is_buy_open: { type: boolean }
+        is_sell_open: { type: boolean }
+        next_open_at: { type: string, format: date-time }
+        next_closed_at: { type: string, format: date-time }
+
+    Prices:
+      type: object
+      required: [gold, silver, trading, updated_at, stale]
+      properties:
+        gold: { $ref: "#/components/schemas/GoldQuote" }
+        silver: { $ref: "#/components/schemas/SilverQuote" }
+        trading: { $ref: "#/components/schemas/TradingWindow" }
+        updated_at:
+          type: string
+          format: date-time
+          description: 시세가 마지막으로 계산된 시각. 신선도를 직접 판단할 수 있다
+        stale:
+          type: boolean
+          description: 갱신이 10분 넘게 지연되면 `true`. 주문 전에 확인할 것
+
+    Candle:
+      type: object
+      description: OHLC 버킷 하나. 모든 가격은 **원/g 정수**다
+      required:
+        [opened_at, open_bid, high_bid, low_bid, close_bid,
+         open_ask, high_ask, low_ask, close_ask]
+      properties:
+        opened_at: { type: string, format: date-time, description: 버킷 시작 시각 }
+        open_bid: { type: integer, format: int64 }
+        high_bid: { type: integer, format: int64 }
+        low_bid: { type: integer, format: int64 }
+        close_bid: { type: integer, format: int64 }
+        open_ask: { type: integer, format: int64 }
+        high_ask: { type: integer, format: int64 }
+        low_ask: { type: integer, format: int64 }
+        close_ask: { type: integer, format: int64 }
+
+    PriceHistory:
+      type: object
+      required: [asset, bucket, unit, candles]
+      properties:
+        asset: { type: string, enum: [gold, silver] }
+        bucket:
+          type: string
+          description: 요청한 버킷. 생략했으면 빈 문자열이며 서버가 고른 간격이 적용됐다
+        unit: { type: string, const: KRW_PER_GRAM }
+        candles:
+          type: array
+          items: { $ref: "#/components/schemas/Candle" }
+
+    TradeRequest:
+      type: object
+      required: [quantity]
+      properties:
+        quantity:
+          type: number
+          format: double
+          exclusiveMinimum: 0
+          description: |
+            주문 수량. **금·은 모두 그램(g)** 이다. 소수 허용.
+
+            서명한 본문 바이트와 전송하는 본문 바이트가 정확히 같아야 한다.
+            직렬화를 두 번 하지 말 것.
+          examples: [0.01, 1.5]
+
+    PayoutRequest:
+      type: object
+      required: [cash_amount]
+      properties:
+        cash_amount:
+          type: integer
+          format: int64
+          exclusiveMinimum: 0
+          description: 출금 금액(원). 정수만 허용
+          examples: [10000]
+
+    Order:
+      type: object
+      description: 체결 결과. 부분 체결이 없으므로 `quantity` 는 요청 수량과 같다
+      required:
+        [order_id, matched_id, market_symbol, type, quantity,
+         price_per_gram, total_cash_krw, matched_at]
+      properties:
+        order_id: { type: string, format: uuid }
+        matched_id: { type: string, format: uuid, description: 체결 식별자 }
+        market_symbol: { type: string, enum: [GOLD, SILVER] }
+        type: { type: string, enum: [BUY, SELL] }
+        quantity: { type: number, format: double, description: 체결 수량(g) }
+        price_per_gram:
+          type: integer
+          format: int64
+          description: 체결 단가(원/g)
+        total_cash_krw:
+          type: integer
+          format: int64
+          description: 총 체결 금액(원). 일일 한도 집계에 쓰이는 값이다
+        matched_at: { type: string, format: date-time }
+
+    ApiKey:
+      type: object
+      description: 키 정보. `secret_key` 필드는 존재하지 않는다
+      required:
+        [id, label, access_key, allow_trade, allow_vacct, allow_payout,
+         rate_limit_per_min, quote_rate_limit_per_min, status, created_at]
+      properties:
+        id: { type: string, format: uuid, description: 폐기할 때 쓰는 식별자 }
+        label: { type: string, maxLength: 50 }
+        access_key:
+          type: string
+          description: JWT `access_key` 클레임에 넣는 값. `gpk_` 접두사 + 32자
+          pattern: "^gpk_[A-Za-z0-9_-]+$"
+        allow_trade: { type: boolean }
+        allow_vacct: { type: boolean }
+        allow_payout: { type: boolean }
+        ip_whitelist:
+          description: 허용 IPv4 목록. 비어 있으면 IP 제한 없음
+          oneOf:
+            - type: array
+              items: { type: string, format: ipv4 }
+            - type: "null"
+        daily_trade_limit: { $ref: "#/components/schemas/NullableLimit" }
+        daily_payout_limit: { $ref: "#/components/schemas/NullableLimit" }
+        per_request_trade_limit: { $ref: "#/components/schemas/NullableLimit" }
+        per_request_payout_limit: { $ref: "#/components/schemas/NullableLimit" }
+        rate_limit_per_min:
+          type: integer
+          description: 거래·입출금 버킷의 분당 한도. 기본 60
+        quote_rate_limit_per_min:
+          type: integer
+          description: 시세 버킷의 분당 한도. 기본 600
+        status: { type: string, enum: [active, revoked] }
+        last_used_at:
+          oneOf:
+            - { type: string, format: date-time }
+            - { type: "null" }
+        expires_at:
+          oneOf:
+            - { type: string, format: date-time }
+            - { type: "null" }
+        created_at: { type: string, format: date-time }
+
+    ApiKeyWithSecret:
+      allOf:
+        - $ref: "#/components/schemas/ApiKey"
+        - type: object
+          required: [secret_key]
+          properties:
+            secret_key:
+              type: string
+              description: |
+                HMAC 서명 키. **이 응답에서만 노출된다.** 서버는 암호화 보관하며
+                재조회 경로가 없다. `sk_` 접두사 + 64자이며, 서명 시 이 문자열
+                전체를 그대로 HMAC 키 바이트로 쓴다.
+              pattern: "^sk_[A-Za-z0-9_-]+$"
+
+    Balances:
+      type: object
+      required: [cash, assets, stored_gold_gram, total, updated_at]
+      properties:
+        cash: { $ref: "#/components/schemas/CashBalance" }
+        assets:
+          type: array
+          description: 항상 gold, silver 두 건이다. 보유가 0이어도 빠지지 않는다
+          items: { $ref: "#/components/schemas/AssetBalance" }
+        stored_gold_gram:
+          type: string
+          description: |
+            보관금(실물 기반). 거래 대상이 아니라 평가와 합계에서 제외된다.
+            상류가 문자열로 주므로 그대로 보존한다
+        total: { $ref: "#/components/schemas/TotalValuation" }
+        updated_at: { type: string, format: date-time }
+
+    CashBalance:
+      type: object
+      required: [krw, krw_held, krw_available]
+      properties:
+        krw: { type: integer, format: int64, description: 보유 원화 }
+        krw_held:
+          type: integer
+          format: int64
+          description: 미체결 매수 주문에 묶인 증거금
+        krw_available:
+          type: integer
+          format: int64
+          description: 추가 주문에 쓸 수 있는 현금. **주문 금액은 이 값을 기준으로 한다**
+
+    AssetBalance:
+      type: object
+      required:
+        [asset, balance_gram, locked_gram, available_gram, valued]
+      properties:
+        asset: { type: string, enum: [gold, silver] }
+        balance_gram: { type: number, format: double, description: 보유 수량(g) }
+        locked_gram:
+          type: number
+          format: double
+          description: 미체결 매도 주문에 묶인 수량(g)
+        available_gram:
+          type: number
+          format: double
+          description: 더 팔 수 있는 수량(g). **매도 수량은 이 값을 기준으로 한다**
+        valued_gram:
+          type: number
+          format: double
+          description: |
+            손익 계산에 들어간 수량(g). 매입 단가를 알 수 없는 보유분은 빠지므로
+            `balance_gram` 보다 작을 수 있다. 이 값으로 전량 매도하면 잔량이 남는다
+        avg_price_per_gram: { type: integer, format: int64, description: 평균 매수 단가(원/g) }
+        cost_basis_krw: { type: integer, format: int64, description: 매입 원가 합(원) }
+        eval_price_per_gram:
+          type: integer
+          format: int64
+          description: 평가에 쓰인 단가(원/g). **매수가(ask)** 이며 앱 화면과 같은 산식이다
+        bid_per_gram:
+          type: integer
+          format: int64
+          description: |
+            현재 매도가(원/g). 지금 팔아서 받을 금액은 `bid_per_gram × valued_gram` 이다.
+            시세를 못 읽으면 0이다
+        eval_amount_krw: { type: integer, format: int64, description: 평가액(원) }
+        unrealized_pl_krw:
+          type: integer
+          format: int64
+          description: 평가손익(원) = 평가액 - 매입원가
+        yield_rate:
+          type: number
+          format: double
+          description: 수익률(%) = (평가단가 - 평단가) / 평단가 × 100
+        valued:
+          type: boolean
+          description: |
+            평가 정보가 채워졌는지. `false` 면 위 평가 관련 값이 전부 0이며,
+            **손익이 0이라는 뜻이 아니다**. 시세 미수신이거나 보유가 없을 때 발생한다
+
+    TotalValuation:
+      type: object
+      description: |
+        평가된 자산만 합산한 값이다. `valued: false` 인 자산은 제외된다 —
+        0으로 섞으면 수익률이 실제보다 낮게 나온다.
+      required: [cost_basis_krw, eval_amount_krw, unrealized_pl_krw, yield_rate]
+      properties:
+        cost_basis_krw: { type: integer, format: int64 }
+        eval_amount_krw: { type: integer, format: int64 }
+        unrealized_pl_krw: { type: integer, format: int64 }
+        yield_rate: { type: number, format: double }
+
+    VirtualAccount:
+      type: object
+      description: |
+        발급된 입금용 가상계좌. 정산 시스템 응답을 그대로 통과시키므로 여기 나열하지 않은
+        필드가 더 올 수 있다.
+      required: [id, contract_id, type, vacct_no, vacct_bank_cd, vacct_expire_at]
+      properties:
+        id: { type: string, description: 입출금 요청 식별자 }
+        contract_id:
+          type: string
+          description: 입금 확정 콜백과 이어지는 계약 식별자
+        type: { type: string, const: in }
+        vacct_no:
+          type: string
+          description: |
+            **입금할 계좌번호.** 이 값으로 송금하면 지갑에 반영된다
+          examples: ["79412345678901"]
+        vacct_bank_cd:
+          type: string
+          description: 계좌의 은행 코드
+        vacct_expire_at:
+          type: string
+          format: date-time
+          description: |
+            **계좌 만료 시각.** 발급 시점 + 600초다. 이 시각을 넘겨 입금하면
+            정상 처리되지 않는다
+        vacct_received_amount:
+          type: integer
+          format: int64
+          description: 이 계좌로 실제 입금된 금액(원). 발급 직후에는 0이다
+        cash_amount:
+          type: integer
+          format: int64
+          description: |
+            요청 금액(원). 입금용 계좌는 금액을 미리 정하지 않으므로 0이다 —
+            실제 금액은 입금 시점에 `vacct_received_amount` 로 확정된다
+        created_at: { type: string, format: date-time }
+
+    OrderPreview:
+      type: object
+      required:
+        [side, asset, price_per_gram, max_quantity_gram, max_cash_krw,
+         limited_by, constraints, updated_at]
+      properties:
+        side: { type: string, enum: [buy, sell] }
+        asset: { type: string, enum: [gold, silver] }
+        price_per_gram:
+          type: integer
+          format: int64
+          description: |
+            이 방향의 체결 예상 단가(원/g). 매수는 ask, 매도는 bid 다.
+            `GET /open/v1/prices` 의 같은 자산·방향 값과 일치한다
+        max_quantity_gram:
+          type: number
+          format: double
+          description: |
+            모든 제약을 만족하는 최대 주문 수량(g). 소수 8자리로 절사된다.
+            경계값을 그대로 주문하면 시세 변동으로 실패할 수 있다
+        max_cash_krw:
+          type: integer
+          format: int64
+          description: 그 수량의 예상 금액(원)
+        limited_by:
+          type: string
+          enum: [balance, per_request_limit, daily_limit]
+          description: |
+            최대치를 결정한 제약.
+
+            - `balance` — 잔고(매수는 가용 현금, 매도는 가용 수량)
+            - `per_request_limit` — 키의 건당 한도
+            - `daily_limit` — 키의 일일 한도 잔여분
+        constraints: { $ref: "#/components/schemas/PreviewConstraints" }
+        updated_at: { type: string, format: date-time }
+
+    PreviewConstraints:
+      type: object
+      description: |
+        최대치를 만든 각 제약의 원값. 봇이 "왜 이만큼인가" 를 직접 판단할 수 있게
+        한다.
+      required:
+        [cash_krw, held_cash_krw, available_cash_krw,
+         balance_gram, locked_gram, available_gram, daily_used_krw]
+      properties:
+        cash_krw: { type: integer, format: int64, description: 보유 원화 }
+        held_cash_krw:
+          type: integer
+          format: int64
+          description: 미체결 매수 주문에 묶인 증거금
+        available_cash_krw:
+          type: integer
+          format: int64
+          description: "매수 가능 현금 = `cash_krw` − `held_cash_krw`"
+        balance_gram:
+          type: number
+          format: double
+          description: 해당 자산 보유 수량(g)
+        locked_gram:
+          type: number
+          format: double
+          description: 미체결 매도 주문에 묶인 수량(g)
+        available_gram:
+          type: number
+          format: double
+          description: "매도 가능 수량(g) = `balance_gram` − `locked_gram`"
+        per_request_limit_krw:
+          description: 키의 건당 한도(원). `null` 이면 무제한
+          oneOf:
+            - { type: integer, format: int64 }
+            - { type: "null" }
+        daily_limit_krw:
+          description: 키의 일일 한도(원). `null` 이면 무제한
+          oneOf:
+            - { type: integer, format: int64 }
+            - { type: "null" }
+        daily_used_krw:
+          type: integer
+          format: int64
+          description: |
+            오늘(KST 0시 기준) 이 키로 성공한 거래 금액 합.
+            `daily_limit_krw` 가 `null` 이면 집계하지 않고 0 이다
+
+    ApiKeyLog:
+      type: object
+      description: 이 키로 들어온 요청 한 건
+      required: [method, path, status_code, succeeded, created_at]
+      properties:
+        method: { type: string, examples: ["POST"] }
+        path: { type: string, examples: ["/api/open/v1/buy/gold"] }
+        status_code: { type: integer, examples: [200] }
+        succeeded: { type: boolean, description: 2xx 여부 }
+        amount:
+          description: |
+            거래·출금 금액(원). 시세 조회처럼 금액이 없는 요청은 `null` 이다.
+            일일 한도 집계도 이 값을 쓴다.
+          oneOf:
+            - { type: integer, format: int64 }
+            - { type: "null" }
+        created_at: { type: string, format: date-time }
+
+    NullableLimit:
+      description: 금액 한도(원). `null` 이면 무제한
+      oneOf:
+        - { type: integer, format: int64, minimum: 0 }
+        - { type: "null" }
+
+    CreateApiKeyRequest:
+      type: object
+      required: [label]
+      properties:
+        label:
+          type: string
+          maxLength: 50
+          description: 키 식별용 이름. 목록에서 구분하는 용도다
+        allow_trade:
+          type: boolean
+          default: true
+          description: 매수·매도 허용
+        allow_vacct:
+          type: boolean
+          default: false
+          description: 가상계좌 발급 허용
+        allow_payout:
+          type: boolean
+          default: false
+          description: |
+            출금 허용. 기본 꺼짐이다. 켤 때는 한도와 IP 화이트리스트를 함께 거는 것을 권한다
+        ip_whitelist:
+          type: array
+          maxItems: 10
+          items: { type: string, format: ipv4 }
+          description: |
+            허용할 공인 IPv4 목록. 생략하면 IP 제한이 없다.
+            사설·루프백·링크로컬 주소는 거부된다(`K0002`). IPv6는 지원하지 않는다
+        daily_trade_limit: { $ref: "#/components/schemas/NullableLimit" }
+        daily_payout_limit: { $ref: "#/components/schemas/NullableLimit" }
+        per_request_trade_limit: { $ref: "#/components/schemas/NullableLimit" }
+        per_request_payout_limit: { $ref: "#/components/schemas/NullableLimit" }
+        password:
+          type: string
+          description: |
+            6자리 거래 PIN. `X-Tx-Auth` 헤더(생체 grant)를 쓰면 생략한다.
+            서버가 검증 후 본문에서 제거한다
