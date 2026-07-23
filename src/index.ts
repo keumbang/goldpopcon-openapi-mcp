@@ -215,8 +215,16 @@ server.tool(
       needsIdempotency: op.needsIdempotency,
       ttlSeconds,
     });
+
+    // 필수 쿼리 파라미터 누락 경고 — 서명은 유효하나 서버가 400 을 낼 수 있다.
+    const provided = new Set(Object.keys(query ?? {}));
+    const missingQuery = op.parameters.filter((p) => p.in === "query" && p.required && !provided.has(p.name)).map((p) => p.name);
+    const warn = missingQuery.length
+      ? `\n\n> ⚠️ 필수 쿼리 파라미터 누락: ${missingQuery.join(", ")}. 서명은 유효하지만 서버가 400(U0005)을 낼 수 있다. query 인자에 채워 다시 생성하라.`
+      : "";
+
     const lang = language === "curl" ? "bash" : language;
-    return text(`# ${operationId} — ${language}\n\n\`\`\`${lang}\n${code}\`\`\`\n\n> ACCESS_KEY/SECRET_KEY 를 실제 키로 바꾼다. secret 은 코드 안에서만 쓰이고 전송되지 않는다.`);
+    return text(`# ${operationId} — ${language}\n\n\`\`\`${lang}\n${code}\`\`\`\n\n> ACCESS_KEY/SECRET_KEY 를 실제 키로 바꾼다. secret 은 코드 안에서만 쓰이고 전송되지 않는다.${warn}`);
   },
 );
 
