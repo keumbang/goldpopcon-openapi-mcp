@@ -32,7 +32,7 @@
     "sync-spec": "node scripts/sync-spec.mjs",
     "start": "node dist/index.js",
     "test": "node --test dist/*.test.js || node --test",
-    "prepublishOnly": "npm run sync-spec && npm run build && npm test"
+    "prepublishOnly": "npm run build && npm test"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
