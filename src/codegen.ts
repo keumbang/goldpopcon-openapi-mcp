@@ -157,7 +157,7 @@ function javascript(i: CodegenInput, c: Ctx): string {
     L.push(`const params = ${JSON.stringify(i.query)};`);
     L.push(`const canonical = Object.entries(params)`);
     L.push(`    .flatMap(([k, v]) => (Array.isArray(v) ? v : [v]).map((x) => [k, String(x)]))`);
-    L.push(`    .sort((a, b) => (a[0] + a[1] < b[0] + b[1] ? -1 : 1))`);
+    L.push(`    .sort((a, b) => (a[0] !== b[0] ? (a[0] < b[0] ? -1 : 1) : a[1] < b[1] ? -1 : a[1] > b[1] ? 1 : 0)) // 키 asc → 값 asc`);
     L.push(`    .map(([k, v]) => \`\${k}=\${v}\`).join("&");`);
     L.push(`payload.query_hash = createHash("sha512").update(canonical).digest("hex");`);
     L.push(`payload.query_hash_alg = "SHA512";`);
