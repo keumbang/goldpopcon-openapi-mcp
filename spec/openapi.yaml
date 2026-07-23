@@ -192,8 +192,8 @@ info:
 servers:
   - url: https://api.staging.example.com/api
     description: staging
-  - url: http://localhost:9998/api
-    description: 로컬 개발
+  - url: https://api.goldpopcon.com/api
+    description: production
 
 security:
   - ApiKeyJWT: []

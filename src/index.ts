@@ -41,7 +41,7 @@ function resolveServerUrl(server?: string): string {
   const servers = getServers();
   if (!server) return servers[0]?.url ?? "https://api.staging.example.com/api";
   if (server === "staging") return servers.find((s) => /staging-backend/.test(s.url))?.url ?? servers[0].url;
-  if (server === "local") return servers.find((s) => /localhost/.test(s.url))?.url ?? servers[0].url;
+  if (server === "production") return servers.find((s) => /goldpopcon\.com/.test(s.url))?.url ?? servers[0].url;
   return server; // 임의 url 허용
 }
 
@@ -192,7 +192,7 @@ server.tool(
     body: z.any().optional().describe("POST 요청 본문 객체. 생략 시 스펙 예제 사용"),
     query: z.record(z.union([z.string(), z.number(), z.boolean()])).optional().describe("GET 쿼리 파라미터"),
     pathParams: z.record(z.string()).optional().describe('경로 파라미터. 예: {"asset":"gold"} (buy/sell)'),
-    server: z.string().optional().describe("staging | local | 임의 base url. 기본 staging"),
+    server: z.string().optional().describe("staging | production | 임의 base url. 기본 staging"),
     ttlSeconds: z.number().optional().describe("JWT 수명(초). 기본 30, 최대 60"),
   },
   async ({ operationId, language, body, query, pathParams, server: srv, ttlSeconds }) => {
@@ -239,7 +239,7 @@ server.tool(
     body: z.any().optional().describe("POST 본문 객체. 생략 시 스펙 예제"),
     query: z.record(z.union([z.string(), z.number(), z.boolean()])).optional(),
     pathParams: z.record(z.string()).optional().describe('경로 파라미터. 예: {"asset":"gold"}'),
-    server: z.string().optional().describe("staging | local | url. 기본 staging"),
+    server: z.string().optional().describe("staging | production | url. 기본 staging"),
     ttlSeconds: z.number().optional(),
   },
   async ({ operationId, accessKey, secretKey, body, query, pathParams, server: srv, ttlSeconds }) => {
