@@ -3,8 +3,8 @@
 //
 // 노출 도구:
 //   list_endpoints          엔드포인트 목록(권한·멱등성·rate 버킷 포함)
-//   get_endpoint            단일 엔드포인트 상세(파라미터·본문 스키마·예제·응답·에러)
-//   list_error_codes        에러 코드 표
+//   get_endpoint            단일 엔드포인트 상세(파라미터·본문 스키마·요청/성공 응답 예제·응답 코드)
+//   list_error_codes        에러 코드 표 + 상태 코드별 재시도 판단 + 함정
 //   signing_guide           JWT 서명 절차(query_hash 분기 등) — 막히는 지점
 //   generate_signed_request 언어별 완결형 서명 요청 코드 생성
 //   sign_request            secret 로 실제 JWT 계산(로컬 전용) — 디버깅
@@ -25,7 +25,7 @@ import {
 import { generateCode, type Language } from "./codegen.js";
 import { signRequest, verifySignature, type HttpMethod } from "./signing.js";
 
-const server = new McpServer({ name: "keumbang-openapi-mcp", version: "0.1.0" });
+const server = new McpServer({ name: "keumbang-openapi-mcp", version: "0.2.0" });
 
 const text = (s: string) => ({ content: [{ type: "text" as const, text: s }] });
 const errText = (s: string) => ({ content: [{ type: "text" as const, text: s }], isError: true });
@@ -49,7 +49,7 @@ function resolveServerUrl(server?: string): string {
 server.tool(
   "list_endpoints",
   "금방 Open API 엔드포인트 목록. 각 항목의 권한 스코프·멱등성 필요 여부·rate limit 버킷을 함께 준다.",
-  { openApiOnly: z.boolean().optional().describe("true 면 /open/* 만(키 관리 앱 경로 제외). 기본 true") },
+  { openApiOnly: z.boolean().optional().describe("true 면 /open/* 만. 기본 true — 현재 스펙은 전부 /open/* 이라 결과가 같다") },
   async ({ openApiOnly }) => {
     const only = openApiOnly ?? true;
     const ops = listOperations().filter((o) => (only ? o.isOpenApi : true));
@@ -86,11 +86,26 @@ server.tool(
     if (op.requestBodySchema) {
       parts.push(`## 요청 본문 스키마\n\`\`\`json\n${JSON.stringify(op.requestBodySchema, null, 2)}\n\`\`\``);
     }
-    if (op.requestBodyExample) {
+    if (op.requestBodyExamples.length > 1) {
+      // 예제가 여럿이면 전부 보여준다 — sellAsset 의 전량매도(sell_all)처럼
+      // 첫 예제만 주면 다른 모드가 있다는 사실이 가려진다.
+      const blocks = op.requestBodyExamples.map(
+        (ex) => `### ${ex.name}${ex.summary ? ` — ${ex.summary}` : ""}\n\`\`\`json\n${JSON.stringify(ex.value, null, 2)}\n\`\`\``,
+      );
+      parts.push(`## 요청 본문 예제\n\n${blocks.join("\n\n")}`);
+    } else if (op.requestBodyExample) {
       parts.push(`## 요청 본문 예제\n\`\`\`json\n${JSON.stringify(op.requestBodyExample, null, 2)}\n\`\`\``);
     }
     if (op.responses.length) {
       parts.push(`## 응답\n${op.responses.map((r) => `- ${r.status}: ${r.description.split("\n")[0]}`).join("\n")}`);
+    }
+    if (op.responseExamples.length === 1) {
+      parts.push(`## 성공 응답 예제\n\`\`\`json\n${JSON.stringify(op.responseExamples[0].value, null, 2)}\n\`\`\``);
+    } else if (op.responseExamples.length > 1) {
+      const blocks = op.responseExamples.map(
+        (ex) => `### ${ex.name}${ex.summary ? ` — ${ex.summary.replace(/\n/g, " ")}` : ""}\n\`\`\`json\n${JSON.stringify(ex.value, null, 2)}\n\`\`\``,
+      );
+      parts.push(`## 성공 응답 예제\n\n${blocks.join("\n\n")}`);
     }
     parts.push(`\n> 서명 코드는 generate_signed_request(operationId="${op.operationId}", language=...) 로 생성.`);
     return text(parts.join("\n\n"));
@@ -100,32 +115,42 @@ server.tool(
 // ── list_error_codes ────────────────────────────────────────────────────────
 server.tool(
   "list_error_codes",
-  "금방 Open API 에러 코드 표와 함정(잔액 부족은 500 S0001, 인증 실패는 error=null 401 등).",
+  "금방 Open API 에러 코드 표와 함정(잔액 부족은 400 P0001, 인증 실패는 error=null 401, 503 fail-closed 등). 상태 코드별 재시도 판단표 포함.",
   {},
   async () => {
     const table = [
       "# 에러 코드",
       "| 코드 | 상태 | 의미 |",
       "|---|---|---|",
-      "| U0005 | 400 | 입력 형식 오류 |",
-      "| N0001 | 404 | 리소스 없음(마켓 등) |",
-      "| S0001 | 500·502·503 | 서버 또는 상류 시스템 오류 |",
+      "| U0005 | 400 | 입력 형식 오류(수량 누락·0 이하, 자산명 오류, 매수에 sell_all 지정) |",
+      "| P0001 | 400 | 가용 현금·가용 수량 부족, 주문 금액 0원, 전량매도할 잔량 없음 |",
       "| M0001 | 400 | 최소 주문 수량 미달 (금 0.001g, 은 0.1g) |",
       "| M0002 | 400 | 주문 단위(0.001g) 위반 |",
       "| M0003 | 400 | 최소 주문 금액(100원) 미달 |",
-      "| K0001 | 400 | label 누락/길이 초과 |",
-      "| K0002 | 400 | ip_whitelist 형식 오류 |",
-      "| K0003 | 400 | 한도 값 음수 |",
-      "| K0004 | 409 | 유저당 키 개수 상한 초과 |",
-      "| K0005 | 404 | 키 없음(타 유저 키 포함) |",
-      "| K0006 | 409 | 이미 폐기된 키 |",
-      "| L0001 | 403 | 금액 한도 초과(건당/일일) |",
+      "| N0001 | 404 | 리소스 없음(마켓 등) |",
+      "| L0001 | 403 | 금액 한도 초과(건당/일일). error 에 limit_krw·requested_krw·remaining_krw |",
+      "| S0001 | 500·502·503 | 서버 또는 상류 시스템 오류 |",
+      "",
+      "## 상태 코드별 재시도 판단",
+      "| 상태 | 뜻 | 재시도 |",
+      "|---|---|---|",
+      "| 400 | 요청 자체가 성립 안 됨 | 무의미. 수량·잔고를 고쳐야 함 |",
+      "| 401 | 서명 실패 | 서명 재계산 후. verify_signature 로 원인 확인 |",
+      "| 403 | 권한 없음 또는 금액 한도 초과 | 한도는 다음 날/한도 조정 전까지 무의미 |",
+      "| 409 | 같은 Idempotency-Key 가 처리 중 | 잠시 후 **같은 키**로 |",
+      "| 429 | rate limit | Retry-After 만큼 대기 |",
+      "| 500 | 체결 중 실패(자금이 움직였을 수 있음) | getBalances 로 반영 확인 후 **같은 키**로 |",
+      "| 503 | 요청이 실행되지 않음(fail-closed) | 그대로 **같은 키**로 재시도 안전 |",
       "",
       "## 함정",
-      "- **잔액 부족 = 500 S0001**. 상류 이체 실패로 뭉뚱그려져 전용 400 코드가 없다. 400 기대 분기 금지. 주문 전 getPrices 로 예상 금액 계산.",
+      "- **잔액 부족 = 400 P0001**(500 아님). 주문 경로가 체결 전에 가용 현금·가용 수량을 검사한다. 두 값 모두 **미체결 주문에 묶인 몫을 뺀** 가용분이라 총 잔고가 충분해도 거절될 수 있다. 주문 전 getOrderPreview 로 최대치 확인.",
+      "- **500 은 '내다가 깨진 주문'**. 사전 검사를 통과한 뒤 상류 이체·원장 처리가 실패한 경우다. 재시도 전 getBalances 로 실제 반영 여부 확인.",
+      "- **503 은 실행 안 된 요청**. 멱등/nonce 저장소 장애, 시세 미수신, 전량매도 잔량 조회 실패, 일일 사용분 조회 실패 — 전부 fail-closed라 값을 추정하지 않는다.",
       "- **인증 실패 = 401, error=null**. 미들웨어 에러는 코드 없이 message 만. '키 없음'과 '서명 불일치'를 구분하지 않는다(access_key 탐색 차단). 로컬 재계산이 유일한 진단 → verify_signature.",
       "- **권한 없음 = 403**. 403 은 서명이 유효했다는 뜻(401 과 구분).",
       "- **429 = rate limit**. quote 600/분, trade 60/분. Retry-After 참고.",
+      "- **체결 이력 조회 API 가 없다.** 주문 응답의 order_id·matched_id·total_cash_krw·matched_at 을 클라이언트가 보관해야 한다. 현재 잔고만 getBalances 로 조회 가능.",
+      "- **키 관리(발급·폐기) 경로는 이 스펙에 없다.** 앱 내부 API 이며 K0001~K0006 은 그쪽 코드다.",
     ];
     return text(table.join("\n"));
   },
@@ -173,6 +198,15 @@ server.tool(
 - \`exp - iat\` ≤ 60초
 - \`iat\` 가 현재보다 30초 넘게 미래면 401(시계 오차 허용)
 - \`nonce\` 는 1회용, 유효 180초. 재사용 401
+
+**클라이언트 시계를 NTP 로 동기화할 것.** 허용 스큐가 30초뿐이라 시계가 앞선 서버는 모든 요청이 401 이 된다. 서명이 맞는데 전량 401 이면 시계부터 확인.
+
+## 첫 통합 순서 — 서명 모드를 난이도 순으로 검증
+1. \`getPrices\` (본문·쿼리 없음 → query_hash 생략) — 200 이면 HMAC 키 처리와 시각 클레임이 맞다는 뜻
+2. \`getOrderPreview\` (쿼리 해시) — 정규화 querystring 검증
+3. \`buyAsset\` / \`sellAsset\` (본문 해시) — 직렬화 바이트 일치 검증
+
+1번을 먼저 통과시키면 401 원인이 서명 로직인지 해시 입력인지 갈린다.
 
 ## 멱등성
 자금 이동(\`/buy/* /sell/* /virtual-accounts /payouts\`)은 \`Idempotency-Key\`(UUID v4) 필수. 재시도는 **같은 키**. 새 키 = 이중 체결.

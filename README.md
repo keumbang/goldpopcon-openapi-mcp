@@ -14,8 +14,8 @@
 | 도구 | 용도 |
 |---|---|
 | `list_endpoints` | 엔드포인트 목록 — 권한 스코프·멱등성·rate 버킷 포함 |
-| `get_endpoint` | 단일 엔드포인트 상세 — 파라미터·본문 스키마·예제·응답·에러 |
-| `list_error_codes` | 에러 코드 표 + 함정(잔액 부족=500 S0001, 인증 실패=401 error:null) |
+| `get_endpoint` | 단일 엔드포인트 상세 — 파라미터·본문 스키마·요청/성공 응답 예제·응답 코드 |
+| `list_error_codes` | 에러 코드 표 + 상태 코드별 재시도 판단 + 함정(잔액 부족=400 P0001, 인증 실패=401 error:null) |
 | `signing_guide` | JWT 서명 절차 — `query_hash` 분기·시각 클레임·nonce·멱등성 |
 | `generate_signed_request` | 언어별(python/javascript/go/curl) 완결형 서명 요청 코드 생성 |
 | `sign_request` | 실제 키로 JWT를 **로컬 계산**(디버깅) — JWT·query_hash·바로 쓸 curl 반환 |
@@ -80,8 +80,10 @@ Claude Desktop `claude_desktop_config.json`, Cursor `~/.cursor/mcp.json`. 개발
 ## 예시 대화
 
 - "sellAsset 을 파이썬으로 호출하는 코드 줘, 금 0.5g" → `generate_signed_request(operationId=sellAsset, language=python, pathParams={asset:gold}, body={quantity:0.5})`
+- "보유한 금 전부 팔려면?" → `generate_signed_request(operationId=sellAsset, language=python, pathParams={asset:gold}, body={quantity:0.001, sell_all:true})` — `sell_all` 이 요청 수량을 무시하고 가용 잔량 전량을 체결한다
 - "이 JWT 가 왜 401 나?" → `verify_signature(token=..., secretKey=..., method=POST, rawBody=...)`
 - "가격 이력 엔드포인트 파라미터 뭐야?" → `get_endpoint(operationId=getPriceHistory)`
+- "잔액 부족이면 몇 번 에러야?" → `list_error_codes` — `400 P0001`(500 아님). 상태 코드별 재시도 판단표도 같이 나온다
 
 ## 스펙 동기화
 

@@ -99,20 +99,62 @@ export interface OperationDetail extends OperationSummary {
   parameters: Array<{ name: string; in: string; required: boolean; description: string; schema: any }>;
   requestBodySchema: any | null;
   requestBodyExample: any | null;
+  /** 스펙에 이름 붙은 요청 본문 예제 전부(예: 소액매도 / 전량매도). 없으면 빈 배열. */
+  requestBodyExamples: Array<{ name: string; summary: string; value: any }>;
+  /** 2xx 응답 본문 예제(봉투 포함). 여러 개면 전부. 없으면 빈 배열. */
+  responseExamples: Array<{ name: string; summary: string; value: any }>;
   responses: Array<{ status: string; description: string }>;
 }
 
-function firstBodyExample(spec: any, requestBody: any): { schema: any; example: any } | null {
+/** content.example / content.examples 를 이름 붙은 목록으로 평탄화한다. */
+function examplesOf(json: any): Array<{ name: string; summary: string; value: any }> {
+  if (!json) return [];
+  const out: Array<{ name: string; summary: string; value: any }> = [];
+  if (json.examples && typeof json.examples === "object") {
+    for (const [name, ex] of Object.entries<any>(json.examples)) {
+      if (ex && "value" in ex) out.push({ name, summary: (ex.summary ?? "").trim(), value: ex.value });
+    }
+  }
+  if (out.length === 0 && json.example != null) out.push({ name: "example", summary: "", value: json.example });
+  return out;
+}
+
+/**
+ * 2xx 응답의 JSON 예제. 성공 응답 형태를 코드 작성 전에 보여주기 위한 것으로,
+ * $ref 로 묶인 공용 응답(OrderCreated 등)도 펼쳐서 찾는다.
+ * 매수·전량매도처럼 한 응답에 모드가 여럿이면 전부 돌려준다.
+ */
+function successExamples(spec: any, op: any): Array<{ name: string; summary: string; value: any }> {
+  for (const status of Object.keys(op.responses ?? {})) {
+    if (!/^2\d\d$/.test(status)) continue;
+    const r = deref(spec, op.responses[status]);
+    const found = examplesOf(r?.content?.["application/json"]);
+    if (found.length > 0) return found;
+  }
+  return [];
+}
+
+function firstBodyExample(
+  spec: any,
+  requestBody: any,
+): { schema: any; example: any; named: Array<{ name: string; summary: string; value: any }> } | null {
   const rb = deref(spec, requestBody);
   const json = rb?.content?.["application/json"];
   if (!json) return null;
   const schema = deref(spec, json.schema);
+
+  // 이름 붙은 예제는 전부 보존한다 — sellAsset 처럼 일반/전량매도가 갈리는 경우
+  // 첫 항목만 주면 다른 모드가 있다는 사실 자체가 가려진다.
+  const named: Array<{ name: string; summary: string; value: any }> = [];
+  if (json.examples && typeof json.examples === "object") {
+    for (const [name, ex] of Object.entries<any>(json.examples)) {
+      if (ex && "value" in ex) named.push({ name, summary: ex.summary ?? "", value: ex.value });
+    }
+  }
+
   // 예제 우선순위: content.example → content.examples 첫 항목 → schema.example → 합성
   let example = json.example ?? null;
-  if (example == null && json.examples && typeof json.examples === "object") {
-    const first: any = Object.values(json.examples)[0];
-    if (first && "value" in first) example = first.value;
-  }
+  if (example == null && named.length > 0) example = named[0].value;
   if (example == null) example = schema?.example ?? null;
   if (example == null && schema?.properties) {
     // 스키마 example 없으면 최소 본문을 합성.
@@ -123,7 +165,7 @@ function firstBodyExample(spec: any, requestBody: any): { schema: any; example: 
     }
     if (Object.keys(example).length === 0) example = null;
   }
-  return { schema, example };
+  return { schema, example, named };
 }
 
 export function getOperation(operationId: string): OperationDetail | null {
@@ -162,6 +204,8 @@ export function getOperation(operationId: string): OperationDetail | null {
         })),
         requestBodySchema: bodyInfo?.schema ?? null,
         requestBodyExample: bodyInfo?.example ?? null,
+        requestBodyExamples: bodyInfo?.named ?? [],
+        responseExamples: successExamples(spec, op),
         responses,
       };
     }
