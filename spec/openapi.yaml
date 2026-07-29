@@ -666,15 +666,33 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "429": { $ref: "#/components/responses/RateLimited" }
+        "500":
+          description: |
+            서버 설정 오류(`S0001`). 재시도해도 풀리지 않으므로 요청을 바꾸지 말고
+            그대로 두면 된다 — 클라이언트가 할 수 있는 조치가 없다.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
         "502":
-          description: 상류 시세 서버 호출 실패. 에러 메시지에 상태 코드와 호출 URL이 포함된다
+          description: |
+            상류 시세 서버 호출 실패(`S0001`). 연결 실패, 상류 장애, 해석 불가 응답이
+            여기 해당한다. 지수 백오프로 재시도한다.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorEnvelope" }
         "503":
           description: |
-            nonce 저장소 장애. 재생 공격을 막을 수 없는 상태라 의도적으로 거부한다
-            (fail-closed).
+            둘 중 하나다(`S0001`). `Retry-After` 유무로 구분한다.
+
+            - **상류 시세 서버 혼잡** — 이력 조회는 모든 사용자가 공유하는 상류 쿼터를
+              쓴다. `Retry-After` 초만큼 기다렸다 재시도한다. 이 키의 rate limit(429)과
+              원인이 다르므로 자기 호출 빈도를 줄일 필요는 없다
+            - **nonce 저장소 장애** — 재생 공격을 막을 수 없어 의도적으로 거부한다
+              (fail-closed). 이때는 `Retry-After` 가 없다
+          headers:
+            Retry-After:
+              description: 상류 혼잡일 때만 실린다. 재시도까지 대기할 초
+              schema: { type: integer }
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorEnvelope" }
@@ -932,6 +950,7 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/MarketNotFound" }
         "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/DemoServerError" }
         "503":
           description: 시세가 아직 수신되지 않았다(`S0001`)
           content:
@@ -981,6 +1000,7 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/MarketNotFound" }
         "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/DemoServerError" }
         "503":
           description: 시세가 아직 수신되지 않았다(`S0001`)
           content:
@@ -1245,6 +1265,19 @@ components:
 
     MarketNotFound:
       description: 해당 자산의 마켓을 찾을 수 없음 (`N0001`)
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+
+    DemoServerError:
+      description: |
+        데모 처리 중 서버 오류 (`S0001`) — 시세 조회 실패, 마켓 조회 실패 등이다.
+
+        실거래의 500 과 뜻이 다르다. 데모는 자금·자산을 이동하지 않으므로 **주문이
+        일부라도 반영됐을 가능성이 없다.** 잔고를 확인할 필요 없이 그대로 재시도하면 된다.
+
+        운영 모드에서는 본문이 `{"success": false, "message": "Something went wrong",
+        "error": null}` 로 마스킹된다.
       content:
         application/json:
           schema: { $ref: "#/components/schemas/ErrorEnvelope" }

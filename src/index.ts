@@ -37,16 +37,37 @@ function substitutePath(path: string, pathParams?: Record<string, string>): { ur
   return { url, error: missing ? `path 파라미터 누락: ${missing.join(", ")} — pathParams 로 지정(예: {"asset":"gold"})` : null };
 }
 
-function resolveServerUrl(server?: string): string {
+/**
+ * server 인자를 base url 로 해석한다.
+ *
+ * 스펙의 servers 에는 production 만 있다 — staging 은 공개 스펙에서 빼고, 대신
+ * 실자금이 움직이지 않는 /open/demo/v1 경로(demoBuyAsset·demoSellAsset)를 쓴다.
+ * 그래서 "staging" 요청은 해석하지 않고 데모 경로로 안내한다.
+ *
+ * 실패를 throw 하지 않고 error 로 돌려준다 — 도구 핸들러가 errText 로 통일해
+ * 응답하기 위해서다(throw 하면 호출부에 따라 그대로 터진다).
+ */
+function resolveServerUrl(server?: string): { url: string | null; error: string | null } {
   const servers = getServers();
-  if (!server) return servers[0]?.url ?? "https://api.goldpopcon.com/api";
+  const fallback = servers[0]?.url ?? "https://api.goldpopcon.com/api";
+  if (!server) return { url: fallback, error: null };
   if (server === "staging") {
     const found = servers.find((s) => /staging-backend/.test(s.url));
-    if (!found) throw new Error("staging 서버가 스펙에 없다 — call_api 를 안전하게 고정할 수 없어 거부한다(fail-closed).");
-    return found.url;
+    if (!found) {
+      return {
+        url: null,
+        error:
+          "staging 서버는 공개 스펙에 없다. 실거래 없이 연동을 검증하려면 " +
+          "operationId 를 demoBuyAsset / demoSellAsset(/open/demo/v1)으로 바꿔 쓴다 — " +
+          "서명·인증·응답 형식은 실거래와 같고 자금만 움직이지 않는다.",
+      };
+    }
+    return { url: found.url, error: null };
   }
-  if (server === "production") return servers.find((s) => /goldpopcon\.com/.test(s.url))?.url ?? servers[0].url;
-  return server; // 임의 url 허용
+  if (server === "production") {
+    return { url: servers.find((s) => /goldpopcon\.com/.test(s.url))?.url ?? fallback, error: null };
+  }
+  return { url: server, error: null }; // 임의 url 허용
 }
 
 // ── list_endpoints ──────────────────────────────────────────────────────────
@@ -233,7 +254,13 @@ server.tool(
     body: z.any().optional().describe("POST 요청 본문 객체. 생략 시 스펙 예제 사용"),
     query: z.record(z.union([z.string(), z.number(), z.boolean()])).optional().describe("GET 쿼리 파라미터"),
     pathParams: z.record(z.string()).optional().describe('경로 파라미터. 예: {"asset":"gold"} (buy/sell)'),
-    server: z.string().optional().describe("staging | production | 임의 base url. 기본 staging"),
+    server: z
+      .string()
+      .optional()
+      .describe(
+        "production | 임의 base url. 기본 production(스펙의 유일한 서버). " +
+          "실거래 없이 시험하려면 server 가 아니라 operationId 를 demoBuyAsset/demoSellAsset 으로 바꾼다",
+      ),
     ttlSeconds: z.number().optional().describe("JWT 수명(초). 기본 30, 최대 60"),
   },
   async ({ operationId, language, body, query, pathParams, server: srv, ttlSeconds }) => {
@@ -242,7 +269,9 @@ server.tool(
     if (!op.isOpenApi) return errText(`'${operationId}' 는 Open API 경로가 아니다(앱 로그인 JWT 경로). 서명 코드 대상 아님.`);
     const { url: subPath, error: pathErr } = substitutePath(op.path, pathParams);
     if (pathErr) return errText(pathErr);
-    const fullUrl = resolveServerUrl(srv) + subPath;
+    const { url: base, error: srvErr } = resolveServerUrl(srv);
+    if (srvErr || !base) return errText(srvErr ?? "서버 url 해석 실패");
+    const fullUrl = base + subPath;
     const effectiveBody =
       op.method === "POST" || op.method === "PUT" || op.method === "PATCH"
         ? (body ?? op.requestBodyExample ?? {})
@@ -280,7 +309,13 @@ server.tool(
     body: z.any().optional().describe("POST 본문 객체. 생략 시 스펙 예제"),
     query: z.record(z.union([z.string(), z.number(), z.boolean()])).optional(),
     pathParams: z.record(z.string()).optional().describe('경로 파라미터. 예: {"asset":"gold"}'),
-    server: z.string().optional().describe("staging | production | url. 기본 staging"),
+    server: z
+      .string()
+      .optional()
+      .describe(
+        "production | 임의 base url. 기본 production(스펙의 유일한 서버). " +
+          "실거래 없이 시험하려면 operationId 를 demoBuyAsset/demoSellAsset 으로 바꾼다",
+      ),
     ttlSeconds: z.number().optional(),
   },
   async ({ operationId, accessKey, secretKey, body, query, pathParams, server: srv, ttlSeconds }) => {
@@ -299,7 +334,9 @@ server.tool(
       query: query as any,
       ttlSeconds,
     });
-    const url = resolveServerUrl(srv) + subPath;
+    const { url: base, error: srvErr } = resolveServerUrl(srv);
+    if (srvErr || !base) return errText(srvErr ?? "서버 url 해석 실패");
+    const url = base + subPath;
     const idemLine = op.needsIdempotency ? `  -H "Idempotency-Key: $(uuidgen)" \\\n` : "";
     const curlCmd = bodyMode
       ? `curl -sS -X ${method} "${url}" \\\n  -H "Authorization: ${res.authorization}" \\\n  -H "Content-Type: application/json" \\\n${idemLine}  --data-raw '${rawBody}'`
@@ -350,14 +387,19 @@ server.tool(
 // 다중 안전장치:
 //   1. env KEUMBANG_MCP_ALLOW_LIVE=true 없으면 도구 등록 자체 안 함
 //   2. 화이트리스트 — 조회(GET) 4개만. buy/sell/payout/vacct 는 라이브 금지
-//   3. staging 고정 — production/임의 url 거부
+//   3. 서버 고정 — 인자로 못 바꾼다(임의 url 거부)
 //   4. GET 강제 — 자금 이동 메서드 원천 차단
+//
+// 3의 대상은 스펙의 유일한 서버인 production 이다. 예전에는 staging 고정이었으나
+// staging 은 공개 스펙에서 빠졌고(대신 /open/demo/v1 을 쓴다), 그 상태로 두면
+// 해석이 항상 실패해 도구가 아예 동작하지 않았다. 화이트리스트가 조회 4개(GET)뿐이라
+// production 을 읽어도 자금은 움직이지 않는다.
 const READONLY_LIVE_OPS = new Set(["getPrices", "getBalances", "getPriceHistory", "getOrderPreview"]);
 
 if (process.env.KEUMBANG_MCP_ALLOW_LIVE === "true") {
   server.tool(
     "call_api",
-    "금방 Open API를 실제로 호출한다(조회 전용 · staging 고정). getPrices/getBalances/getPriceHistory/getOrderPreview 만 허용 — 자금 이동 엔드포인트는 불가. secret_key 로 로컬 서명 후 요청한다.",
+    "골드팝콘 Open API를 실제로 호출한다(조회 전용 · production 고정). getPrices/getBalances/getPriceHistory/getOrderPreview 만 허용 — 자금 이동 엔드포인트는 불가. secret_key 로 로컬 서명 후 요청한다.",
     {
       operationId: z.enum(["getPrices", "getBalances", "getPriceHistory", "getOrderPreview"]),
       accessKey: z.string().describe("gpk_... 액세스 키"),
@@ -374,12 +416,8 @@ if (process.env.KEUMBANG_MCP_ALLOW_LIVE === "true") {
 
       const { url: subPath, error: pathErr } = substitutePath(op.path, pathParams);
       if (pathErr) return errText(pathErr);
-      let base: string;
-      try {
-        base = resolveServerUrl("staging"); // staging 고정 — 인자로 못 바꾼다
-      } catch (e: any) {
-        return errText(e?.message ?? "staging 서버 확인 실패");
-      }
+      const { url: base, error: srvErr } = resolveServerUrl("production"); // 고정 — 인자로 못 바꾼다
+      if (srvErr || !base) return errText(srvErr ?? "서버 url 해석 실패");
       const res = signRequest({ accessKey, secretKey, method: "GET", query: query as any });
 
       const qs = query && Object.keys(query).length > 0 ? "?" + new URLSearchParams(query as Record<string, string>).toString() : "";
@@ -396,7 +434,7 @@ if (process.env.KEUMBANG_MCP_ALLOW_LIVE === "true") {
         const bodyText = await resp.text();
         const rl = ["limit", "remaining", "reset"].map((k) => `${k}=${resp.headers.get("x-ratelimit-" + k) ?? "-"}`).join(" ");
         return text(
-          `# ${operationId} @ staging\n${op.method} ${target}\nHTTP ${resp.status}   rate[${rl}]\n\n\`\`\`json\n${bodyText}\n\`\`\``,
+          `# ${operationId} @ production\n${op.method} ${target}\nHTTP ${resp.status}   rate[${rl}]\n\n\`\`\`json\n${bodyText}\n\`\`\``,
         );
       } catch (e: any) {
         return errText(`요청 실패: ${e?.name === "AbortError" ? "타임아웃(10s)" : e?.message ?? e}`);
@@ -405,7 +443,7 @@ if (process.env.KEUMBANG_MCP_ALLOW_LIVE === "true") {
       }
     },
   );
-  process.stderr.write("call_api 활성 (조회 전용, staging)\n");
+  process.stderr.write("call_api 활성 (조회 전용, production)\n");
 }
 
 // ── 리소스: 전체 스펙 ────────────────────────────────────────────────────────
