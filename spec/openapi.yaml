@@ -1,11 +1,11 @@
 openapi: 3.1.0
 
 info:
-  title: 금방(Keumbang) Open API
+  title: 골드팝콘(Gold Popcorn) Open API
   version: "1.0.0"
   summary: 유저가 직접 발급한 API 키로 금·은을 거래하는 공개 API
   description: |
-    금방 앱 사용자가 앱에서 직접 API 키를 발급받아, 프로그래밍 방식으로 금·은을 거래하고
+    골드팝콘 앱 사용자가 앱에서 직접 API 키를 발급받아, 프로그래밍 방식으로 금·은을 거래하고
     입출금을 처리하는 API다. 업비트/바이낸스의 개인 API 키와 같은 모델이며, 중개하는
     파트너사가 없다 — **키 소유자 = 거래 주체 = 본인**이다.
 
@@ -45,7 +45,7 @@ info:
 
     ## 2. 키 발급
 
-    키는 **금방 앱에서 직접 발급한다.** 앱 로그인 후 생체 인증 또는 6자리 거래 PIN을
+    키는 **골드팝콘 앱에서 직접 발급한다.** 앱 로그인 후 생체 인증 또는 6자리 거래 PIN을
     통과해야 발급되며, 이 시점의 본인확인이 **이후 모든 API 호출의 인증 근거**가 된다.
     그래서 Open API 호출에는 별도의 생체/PIN 인증이 없다. 발급 화면에서 권한 플래그,
     금액 한도, IP 화이트리스트를 함께 정한다.
@@ -335,7 +335,7 @@ info:
 
     ## 8. 단위
 
-    금방 내부 시세는 금이 **1돈(3.75g)** 단위, 은이 **1g** 단위로 들어온다.
+    골드팝콘 내부 시세는 금이 **1돈(3.75g)** 단위, 은이 **1g** 단위로 들어온다.
     반면 **주문 수량은 금·은 모두 g** 이다.
 
     이 API는 금 시세를 원본(`*_per_don`)과 g 환산값(`*_per_gram`)으로 함께 내려준다.
@@ -385,12 +385,10 @@ info:
     > `GET /open/v1/orders/preview` 로 가용 최대치를 확인하는 편이 안전하다.
 
   contact:
-    name: 금방
+    name: 골드팝콘
     email: product@keumbang.com
 
 servers:
-  - url: https://api.staging.example.com/api
-    description: staging
   - url: https://api.goldpopcon.com/api
     description: production
 
@@ -404,6 +402,11 @@ tags:
     description: 잔고·평가손익 조회. 권한 플래그 없이 모든 키에 허용된다
   - name: trade
     description: 금·은 매수·매도. `allow_trade` 필요
+  - name: demo
+    description: |
+      데모 매수·매도. 실제 자금·자산 이동 없이 실시간 시세로 체결을 시뮬레이션한다.
+      연동 코드(서명·요청·응답 파싱)를 실제 계정에 영향 없이 검증하는 용도다.
+      `allow_trade` 필요, `Idempotency-Key` 불필요, 건당·일일 한도 미적용.
   - name: cash
     description: 가상계좌 발급·출금. 각각 `allow_vacct` / `allow_payout` 필요
 
@@ -797,7 +800,7 @@ paths:
       operationId: buyAsset
       summary: 금·은 매수
       description: |
-        금방과 직접 체결한다. 호가창을 거치지 않으므로 부분 체결이 없다 — 요청 수량
+        골드팝콘과 직접 체결한다. 호가창을 거치지 않으므로 부분 체결이 없다 — 요청 수량
         전량이 체결되거나 요청이 실패한다.
 
         체결 단가는 요청 시점의 ask 시세다. `GET /open/v1/prices` 의
@@ -839,7 +842,7 @@ paths:
       operationId: sellAsset
       summary: 금·은 매도
       description: |
-        금방과 직접 체결한다. 체결 단가는 요청 시점의 bid 시세이며
+        골드팝콘과 직접 체결한다. 체결 단가는 요청 시점의 bid 시세이며
         `GET /open/v1/prices` 의 `*_per_gram` bid 값과 같다.
 
         가용 수량(보유 − 미체결 매도에 묶인 양)이 부족하면 `400 / P0001` 이다.
@@ -889,6 +892,100 @@ paths:
         "429": { $ref: "#/components/responses/RateLimited" }
         "500": { $ref: "#/components/responses/TradeFailed" }
         "503": { $ref: "#/components/responses/StoreUnavailable" }
+
+  /open/demo/v1/buy/{asset}:
+    post:
+      tags: [demo]
+      operationId: demoBuyAsset
+      summary: 금·은 데모 매수 (실자금 이동 없음)
+      description: |
+        연동 코드를 검증하기 위한 데모 엔드포인트다. `GET /open/v1/prices` 와 같은
+        실시간 ask 시세로 체결가를 계산해 실제 매수와 동일한 응답을 돌려주지만,
+        지갑 잔액도 확인하지 않고 실제로 자금·자산을 이동하지도 않는다. 잔고에
+        영향을 주지 않으므로 `GET /open/v1/balances` 로 반영을 확인할 필요가 없다.
+
+        `Idempotency-Key` 헤더는 요구하지 않는다(자금 이동이 없어 재생 방지가
+        필요 없다). 건당·일일 금액 한도도 적용되지 않는다.
+
+        `allow_trade` 권한은 실거래와 동일하게 요구한다.
+
+        주문 규칙(`M0001`·`M0002`·`M0003`)은 실거래와 같게 검증한다 — 서명·수량
+        처리 코드가 실거래에서도 그대로 통하는지 확인하는 것이 이 엔드포인트의
+        목적이기 때문이다.
+
+        응답 `order_id`·`matched_id` 는 `demo_` 접두사가 붙어 실거래 식별자와 구분된다.
+      parameters:
+        - $ref: "#/components/parameters/AssetPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TradeRequest" }
+            examples:
+              소액매수:
+                summary: 금 0.01g 데모 매수
+                value: { quantity: 0.01 }
+      responses:
+        "200": { $ref: "#/components/responses/DemoOrderCreated" }
+        "400": { $ref: "#/components/responses/DemoTradeBadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/MarketNotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "503":
+          description: 시세가 아직 수신되지 않았다(`S0001`)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+
+  /open/demo/v1/sell/{asset}:
+    post:
+      tags: [demo]
+      operationId: demoSellAsset
+      summary: 금·은 데모 매도 (실자금 이동 없음)
+      description: |
+        연동 코드를 검증하기 위한 데모 엔드포인트다. `GET /open/v1/prices` 와 같은
+        실시간 bid 시세로 체결가를 계산할 뿐, 실거래처럼 보유 수량을 확인하거나
+        실제로 자산을 이동하지 않는다.
+
+        ### `sell_all: true` — 데모는 고정된 가용 잔량을 쓴다
+
+        데모에는 실 지갑이 없어 실제 보유 수량을 조회할 수 없다. 대신 자산별로
+        고정된 가용 잔량(금 5.5g, 은 80g)을 항상 쓴다 — 요청 `quantity` 는
+        실거래와 마찬가지로 **무시된다**. 주문 규칙(`M0001`·`M0002`·`M0003`) 우회와
+        지급액 올림 처리도 실거래와 동일하게 적용한다. `quantity` 는 이 모드에서도
+        필수다(0 이하면 `400 / U0005`).
+
+        `Idempotency-Key` 헤더는 요구하지 않으며, 건당·일일 금액 한도도 적용되지
+        않는다. `allow_trade` 권한은 실거래와 동일하게 요구한다.
+
+        응답 `order_id`·`matched_id` 는 `demo_` 접두사가 붙어 실거래 식별자와 구분된다.
+      parameters:
+        - $ref: "#/components/parameters/AssetPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TradeRequest" }
+            examples:
+              소액매도:
+                summary: 금 0.01g 데모 매도
+                value: { quantity: 0.01 }
+              전량매도:
+                summary: "고정 가용 잔량(금 5.5g)으로 체결 — quantity 는 무시되지만 필수"
+                value: { quantity: 0.001, sell_all: true }
+      responses:
+        "200": { $ref: "#/components/responses/DemoOrderCreated" }
+        "400": { $ref: "#/components/responses/DemoTradeBadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/MarketNotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "503":
+          description: 시세가 아직 수신되지 않았다(`S0001`)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
 
   /open/v1/virtual-accounts:
     post:
@@ -1235,6 +1332,50 @@ components:
                   price_per_gram: 181866
                   total_cash_krw: 2154327
                   matched_at: "2026-07-27T14:07:02+09:00"
+
+    DemoOrderCreated:
+      description: |
+        데모 체결. 실제 자금·자산은 이동하지 않았다. `Idempotent-Replay` 헤더는 없다
+        (데모는 멱등 캐시를 두지 않는다).
+      headers:
+        X-RateLimit-Limit: { $ref: "#/components/headers/RateLimitLimit" }
+        X-RateLimit-Remaining: { $ref: "#/components/headers/RateLimitRemaining" }
+        X-RateLimit-Reset: { $ref: "#/components/headers/RateLimitReset" }
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/SuccessEnvelope"
+              - type: object
+                properties:
+                  data: { $ref: "#/components/schemas/Order" }
+          examples:
+            데모매수체결:
+              summary: 금 0.01g 데모 매수 — ask 189,866원/g, 원 미만 절사
+              value:
+                success: true
+                message: Successfully created demo order
+                data:
+                  order_id: demo_3f2a91c4-6b18-4d0e-9a77-2c5f8e10b3d9
+                  matched_id: demo_7c14e58b-0d92-4a63-8f21-6b9d4e07a2c5
+                  market_symbol: GOLD
+                  type: BUY
+                  quantity: 0.01
+                  price_per_gram: 189866
+                  total_cash_krw: 1898
+                  matched_at: "2026-07-27T14:05:41+09:00"
+
+    DemoTradeBadRequest:
+      description: |
+        `quantity` 가 없거나 0 이하, 자산이 gold/silver가 아님, 매수에 `sell_all` 지정
+        (`U0005`), 또는 주문 규칙 위반(`M0001`·`M0002`·`M0003`, `sell_all: true` 는 우회),
+        주문 금액 0원(`P0001`).
+
+        실거래의 `TradeBadRequest` 와 달리 `Idempotency-Key` 관련 사유는 없다 —
+        데모는 이 헤더를 쓰지 않는다.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
 
   schemas:
     SuccessEnvelope:

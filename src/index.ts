@@ -39,8 +39,12 @@ function substitutePath(path: string, pathParams?: Record<string, string>): { ur
 
 function resolveServerUrl(server?: string): string {
   const servers = getServers();
-  if (!server) return servers[0]?.url ?? "https://api.staging.example.com/api";
-  if (server === "staging") return servers.find((s) => /staging-backend/.test(s.url))?.url ?? servers[0].url;
+  if (!server) return servers[0]?.url ?? "https://api.goldpopcon.com/api";
+  if (server === "staging") {
+    const found = servers.find((s) => /staging-backend/.test(s.url));
+    if (!found) throw new Error("staging 서버가 스펙에 없다 — call_api 를 안전하게 고정할 수 없어 거부한다(fail-closed).");
+    return found.url;
+  }
   if (server === "production") return servers.find((s) => /goldpopcon\.com/.test(s.url))?.url ?? servers[0].url;
   return server; // 임의 url 허용
 }
@@ -370,7 +374,12 @@ if (process.env.KEUMBANG_MCP_ALLOW_LIVE === "true") {
 
       const { url: subPath, error: pathErr } = substitutePath(op.path, pathParams);
       if (pathErr) return errText(pathErr);
-      const base = resolveServerUrl("staging"); // staging 고정 — 인자로 못 바꾼다
+      let base: string;
+      try {
+        base = resolveServerUrl("staging"); // staging 고정 — 인자로 못 바꾼다
+      } catch (e: any) {
+        return errText(e?.message ?? "staging 서버 확인 실패");
+      }
       const res = signRequest({ accessKey, secretKey, method: "GET", query: query as any });
 
       const qs = query && Object.keys(query).length > 0 ? "?" + new URLSearchParams(query as Record<string, string>).toString() : "";

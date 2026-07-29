@@ -87,12 +87,12 @@ Claude Desktop `claude_desktop_config.json`, Cursor `~/.cursor/mcp.json`. 개발
 
 ## 스펙 동기화
 
-스펙 원본은 **<backend-repo> repo 의 `docs/openapi.yaml`**(이 repo 밖)이고, 이 repo 는 `spec/openapi.yaml` 사본을 번들한다. 원본이 바뀌면 `SPEC_SRC` 로 경로를 지정해 갱신한다:
+스펙 원본은 **백엔드 repo 의 `docs/openapi.yaml`**(이 repo 밖)이고, 이 repo 는 `spec/openapi.yaml` 사본을 번들한다. 원본이 바뀌면 `SPEC_SRC` 로 경로를 지정해 갱신한다:
 
 ```bash
 SPEC_SRC=/path/to/<backend-repo>/docs/openapi.yaml npm run sync-spec
 ```
-(<backend-repo> 을 sibling 으로 클론했으면 `../<backend-repo>/docs/openapi.yaml` 가 기본값이라 인자 없이 `npm run sync-spec`.)
+(백엔드 repo 를 sibling 으로 클론했으면 `../<backend-repo>/docs/openapi.yaml` 가 기본값이라 인자 없이 `npm run sync-spec`.)
 
 갱신 후 `spec/openapi.yaml` 을 커밋한다. 서명 규칙이 서버와 어긋나면 `npm test`(서버 검증 규칙 미러)가 잡는다.
 ```

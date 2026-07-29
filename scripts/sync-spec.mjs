@@ -1,6 +1,6 @@
 // 금방 Open API 스펙 원본 → 이 repo 의 번들 사본(spec/openapi.yaml) 동기화.
 //
-// 스펙 원본은 <backend-repo> repo 의 docs/openapi.yaml 에 있다(이 repo 밖).
+// 스펙 원본은 백엔드 repo 의 docs/openapi.yaml 에 있다(이 repo 밖).
 // 경로는 SPEC_SRC 환경변수로 지정한다. 없으면 sibling 위치를 기본으로 시도한다.
 //   SPEC_SRC=/path/to/<backend-repo>/docs/openapi.yaml npm run sync-spec
 import { copyFileSync, existsSync } from "node:fs";

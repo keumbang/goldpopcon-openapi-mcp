@@ -27,15 +27,14 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      id-token: write
+      id-token: write # trusted publishing(OIDC) 필수 — NPM_TOKEN 시크릿 불필요
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22" # npm trusted publishing 은 npm CLI >=11.5.1 요구
           registry-url: "https://registry.npmjs.org"
           cache: npm
+      - run: npm install -g npm@latest
       - run: npm ci
       - run: npm publish --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
