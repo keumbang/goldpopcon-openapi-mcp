@@ -20,7 +20,7 @@
 | `generate_signed_request` | 언어별(python/javascript/go/curl) 완결형 서명 요청 코드 생성 |
 | `sign_request` | 실제 키로 JWT를 **로컬 계산**(디버깅) — JWT·query_hash·바로 쓸 curl 반환 |
 | `verify_signature` | 이미 만든 JWT를 서버와 같은 순서로 검증 — 401 원인 진단 |
-| `call_api` *(opt-in)* | 실제 호출 — **조회 전용·staging 고정**. env 로 켤 때만 등록 |
+| `call_api` *(opt-in)* | 실제 호출 — **조회 전용·production 고정**. env 로 켤 때만 등록 |
 
 리소스: `keumbang://openapi.yaml`(전체 스펙), `keumbang://overview`(서명·한도·에러 산문).
 
@@ -32,7 +32,7 @@
 
 1. **env 게이트** — 변수 없으면 도구 자체가 없다
 2. **화이트리스트** — `getPrices` / `getBalances` / `getPriceHistory` / `getOrderPreview` 만. `buy`·`sell`·`payout`·`virtual-accounts` 는 라이브 불가(코드 생성만)
-3. **staging 고정** — production/임의 url 지정 불가
+3. **production 고정** — 인자로 서버를 바꿀 수 없다. 조회 전용이라 production 을 읽어도 자금은 움직이지 않는다
 4. **GET 강제** — 쓰기 메서드 차단
 
 자금 이동 엔드포인트를 실제로 호출하려면 `generate_signed_request` 로 코드를 받아 개발자 본인 환경에서 실행한다.
@@ -75,7 +75,7 @@ Claude Desktop `claude_desktop_config.json`, Cursor `~/.cursor/mcp.json`. 개발
 | 변수 | 기본 | 의미 |
 |---|---|---|
 | `KEUMBANG_OPENAPI_SPEC` | 번들 `spec/openapi.yaml` | 스펙 파일 경로 재지정 |
-| `KEUMBANG_MCP_ALLOW_LIVE` | (없음) | `true` 면 `call_api`(조회 전용·staging) 활성화 |
+| `KEUMBANG_MCP_ALLOW_LIVE` | (없음) | `true` 면 `call_api`(조회 전용·production) 활성화 |
 
 ## 예시 대화
 
