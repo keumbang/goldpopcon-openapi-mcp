@@ -52,17 +52,13 @@ function resolveServerUrl(server?: string): { url: string | null; error: string 
   const fallback = servers[0]?.url ?? "https://api.goldpopcon.com/api";
   if (!server) return { url: fallback, error: null };
   if (server === "staging") {
-    const found = servers.find((s) => /staging-backend/.test(s.url));
-    if (!found) {
-      return {
-        url: null,
-        error:
-          "staging 서버는 공개 스펙에 없다. 실거래 없이 연동을 검증하려면 " +
-          "operationId 를 demoBuyAsset / demoSellAsset(/open/demo/v1)으로 바꿔 쓴다 — " +
-          "서명·인증·응답 형식은 실거래와 같고 자금만 움직이지 않는다.",
-      };
-    }
-    return { url: found.url, error: null };
+    return {
+      url: null,
+      error:
+        "staging 서버는 공개 스펙에 없다. 실거래 없이 연동을 검증하려면 " +
+        "operationId 를 demoBuyAsset / demoSellAsset(/open/demo/v1)으로 바꿔 쓴다 — " +
+        "서명·인증·응답 형식은 실거래와 같고 자금만 움직이지 않는다.",
+    };
   }
   if (server === "production") {
     return { url: servers.find((s) => /goldpopcon\.com/.test(s.url))?.url ?? fallback, error: null };

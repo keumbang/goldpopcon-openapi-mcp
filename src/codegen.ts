@@ -11,7 +11,7 @@ export type Language = "python" | "javascript" | "go" | "curl";
 export interface CodegenInput {
   operationId: string;
   method: HttpMethod;
-  /** 서버 url + path. 예: https://api.staging.example.com/api/open/v1/sell/gold */
+  /** 서버 url + path. 예: https://api.goldpopcon.com/api/open/v1/sell/gold */
   fullUrl: string;
   body?: unknown;
   query?: Record<string, string | number | boolean>;

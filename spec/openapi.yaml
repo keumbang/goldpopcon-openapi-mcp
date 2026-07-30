@@ -589,7 +589,9 @@ paths:
         `?bucket=1h&asset=gold` 는 키 정렬 후 `asset=gold&bucket=1h` 를 해시한다.
 
         상류 시세 서버에 IP당 분당 30회 제한이 있어 응답을 캐시한다. 캐시 수명은
-        버킷 길이에 비례한다(`1m` 10초 ~ `1d` 5분).
+        버킷 길이에 비례한다(`1m` 10초 ~ `1d` 5분). 이 제한은 **모든 사용자가 공유**하며,
+        캐시 미스가 몰려 소진되면 `503 + Retry-After` 다(이 키의 rate limit 인 429 와
+        원인이 다르다).
       parameters:
         - name: asset
           in: query
@@ -1276,8 +1278,8 @@ components:
         실거래의 500 과 뜻이 다르다. 데모는 자금·자산을 이동하지 않으므로 **주문이
         일부라도 반영됐을 가능성이 없다.** 잔고를 확인할 필요 없이 그대로 재시도하면 된다.
 
-        운영 모드에서는 본문이 `{"success": false, "message": "Something went wrong",
-        "error": null}` 로 마스킹된다.
+        본문에는 에러 코드와 사람이 읽는 원인 문구만 담긴다. 내부 진단 정보(스택,
+        상류 주소, 상류 응답 본문)는 서버 로그에만 남고 응답에 실리지 않는다.
       content:
         application/json:
           schema: { $ref: "#/components/schemas/ErrorEnvelope" }
@@ -1293,8 +1295,8 @@ components:
         같은 `Idempotency-Key` 로 재시도하기 전에 `GET /open/v1/balances` 로 실제
         반영 여부를 확인하는 것이 안전하다.
 
-        운영 모드에서는 본문이 `{"success": false, "message": "Something went wrong",
-        "error": null}` 로 마스킹된다.
+        본문에는 에러 코드와 사람이 읽는 원인 문구만 담긴다. 내부 진단 정보(스택,
+        상류 주소, 상류 응답 본문)는 서버 로그에만 남고 응답에 실리지 않는다.
       content:
         application/json:
           schema: { $ref: "#/components/schemas/ErrorEnvelope" }
@@ -1445,7 +1447,6 @@ components:
         messages:
           type: array
           items: { type: string }
-        stack: { type: string }
         limit_krw:
           type: integer
           description: "`L0001` 전용. 걸린 한도(건당 또는 일일)"
