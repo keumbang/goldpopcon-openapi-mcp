@@ -171,7 +171,7 @@ server.tool(
       "- **권한 없음 = 403**. 403 은 서명이 유효했다는 뜻(401 과 구분).",
       "- **429 = rate limit**. quote 600/분, trade 60/분. Retry-After 참고.",
       "- **체결 이력 조회 API 가 없다.** 주문 응답의 order_id·matched_id·total_cash_krw·matched_at 을 클라이언트가 보관해야 한다. 현재 잔고만 getBalances 로 조회 가능.",
-      "- **키 관리(발급·폐기) 경로는 이 스펙에 없다.** 앱 내부 API 이며 K0001~K0006 은 그쪽 코드다.",
+      "- **키 관리(발급·폐기) 경로는 이 스펙에 없다.** 앱 내부 API 이며 K0001~K0006 은 그쪽 코드다. 키 발급은 골드팝콘 앱 설치 후 Open API 메뉴에서 — [App Store](https://apps.apple.com/kr/app/id6747214612) · [Google Play](https://play.google.com/store/apps/details?id=com.keumbang.goldpopcorn)",
     ];
     return text(table.join("\n"));
   },
@@ -186,6 +186,8 @@ server.tool(
     const guide = `# 금방 Open API 요청 서명
 
 모든 요청은 \`Authorization: Bearer <JWT>\`. 이 JWT 는 로그인 토큰이 아니라 **요청 하나마다 새로 만드는 서명**이다.
+
+> 키가 아직 없으면: 골드팝콘 앱 설치 후 Open API 메뉴에서 발급한다 — [App Store](https://apps.apple.com/kr/app/id6747214612) · [Google Play](https://play.google.com/store/apps/details?id=com.keumbang.goldpopcorn). \`sk_\` 시크릿은 발급 화면에서만 노출된다.
 
 ## payload
 \`\`\`

@@ -7,6 +7,14 @@
 
 금방(Keumbang) Open API **코딩 어시스턴트 MCP 서버**. Claude Desktop · Cursor · Cline 등 MCP 클라이언트에 붙여, 금·은 거래 API 연동 코드를 정확히 짜도록 돕는다.
 
+## API 키 발급
+
+Open API 키(`gpk_` 액세스 키 + `sk_` 시크릿 키)는 **골드팝콘 앱에서만 발급**된다. 웹 발급 경로는 없다.
+
+1. 골드팝콘 앱 설치 — [App Store](https://apps.apple.com/kr/app/id6747214612) · [Google Play](https://play.google.com/store/apps/details?id=com.keumbang.goldpopcorn)
+2. 회원가입 후 앱 내 Open API 메뉴에서 키 발급
+3. `sk_` 시크릿 키는 **발급 화면에서만 노출**된다 — 그 자리에서 안전한 곳에 보관
+
 이 API에서 개발자가 막히는 지점은 필드명이 아니라 **요청 서명**이다 — `query_hash` 입력이 메서드에 따라 갈리고(POST=raw body, GET=정규화 querystring) 업비트 예제를 그대로 옮기면 전부 401이 난다. 이 MCP는 그 절차를 코드로 생성하고 로컬에서 서명/검증까지 해준다.
 
 ## 도구
