@@ -312,7 +312,7 @@ info:
 
     | 버킷 | 대상 | 기본값 |
     |---|---|---|
-    | `quote` | `/prices`, `/prices/history`, `/balances` | 600 회/분 |
+    | `quote` | `/prices`, `/prices/history`, `/balances`, `/orders/history` | 600 회/분 |
     | `trade` | 나머지 전부 | 60 회/분 |
 
     고정 윈도(매분 0초 리셋)다. 모든 응답에 `X-RateLimit-Limit`,
@@ -402,6 +402,8 @@ tags:
     description: 잔고·평가손익 조회. 권한 플래그 없이 모든 키에 허용된다
   - name: trade
     description: 금·은 매수·매도. `allow_trade` 필요
+  - name: orders
+    description: 체결 이력 조회. 권한 플래그 없이 모든 키에 허용된다
   - name: demo
     description: |
       데모 매수·매도. 실제 자금·자산 이동 없이 실시간 시세로 체결을 시뮬레이션한다.
@@ -810,6 +812,118 @@ paths:
           description: |
             시세 미수신이거나 잔고를 조회할 수 없다. 추정값을 주지 않고 실패한다 —
             잘못된 최대치는 그대로 주문이 된다.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+
+  /open/v1/orders/history:
+    get:
+      tags: [orders]
+      operationId: getTradeHistory
+      summary: 체결 이력 조회
+      description: |
+        계정의 체결 내역을 **최신순**으로 준다. 권한 플래그 없이 모든 키에 허용되고
+        `quote` 버킷(600회/분)을 쓴다 — 잔고와 같은 "본인 자산 조회"다.
+
+        **Open API 로 낸 주문만이 아니라 앱에서 낸 주문의 체결도 함께 나온다.**
+        `/balances` 와 같은 기준(계정 전체)이라야 봇이 자기 포지션을 재구성할 수 있다.
+
+        방향(`type`)은 **호출자 기준**이다. 호출자가 매수자로 참여한 체결이면 `BUY`,
+        매도자면 `SELL` 이다. `order_id` 도 호출자 쪽 주문 ID 이며 상대방 주문 ID 는
+        노출하지 않는다.
+
+        ### 페이지네이션
+
+        커서 방식이다. `has_more` 가 `true` 면 `next_cursor` 를 다음 요청의 `cursor` 에
+        그대로 넣는다. 값은 불투명 문자열이므로 파싱하지 말 것.
+
+        offset 이 아니라 커서를 쓰는 이유는 조회 중에 새 체결이 들어와도 같은 행을
+        두 번 받거나 건너뛰지 않기 위해서다.
+
+        ### 서명
+
+        쿼리 파라미터가 있으므로 `query_hash` 는 정규화 querystring으로 계산한다.
+        `?limit=50&asset=gold` 는 키 정렬 후 `asset=gold&limit=50` 을 해시한다.
+        **커서로 다음 페이지를 부를 때는 `cursor` 도 포함해 다시 서명해야 한다.**
+      parameters:
+        - name: asset
+          in: query
+          required: false
+          description: 자산. 생략하면 전체
+          schema:
+            type: string
+            enum: [gold, silver]
+        - name: from
+          in: query
+          required: false
+          description: 체결 시각 하한(RFC3339, 포함). 생략하면 제한 없음
+          schema: { type: string, format: date-time }
+        - name: to
+          in: query
+          required: false
+          description: 체결 시각 상한(RFC3339, 포함). 생략하면 제한 없음
+          schema: { type: string, format: date-time }
+        - name: limit
+          in: query
+          required: false
+          description: 최대 건수
+          schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+        - name: cursor
+          in: query
+          required: false
+          description: 이전 응답의 `next_cursor`. 첫 페이지는 생략한다
+          schema: { type: string }
+      responses:
+        "200":
+          description: 성공
+          headers:
+            X-RateLimit-Limit: { $ref: "#/components/headers/RateLimitLimit" }
+            X-RateLimit-Remaining: { $ref: "#/components/headers/RateLimitRemaining" }
+            X-RateLimit-Reset: { $ref: "#/components/headers/RateLimitReset" }
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data: { $ref: "#/components/schemas/TradeHistory" }
+              example:
+                success: true
+                message: Successfully get trade history
+                data:
+                  trades:
+                    - matched_id: 9f1c2b7e-2b1a-4c5f-9d3e-6a7b8c9d0e1f
+                      order_id: 3b0d5a11-7e42-4a1c-8b93-2f6e5d4c3b2a
+                      asset: gold
+                      type: BUY
+                      quantity: 1.5
+                      price_per_gram: 181866
+                      total_cash_krw: 272799
+                      matched_at: "2026-07-27T14:03:11+09:00"
+                    - matched_id: 5c2e9a44-1d33-4b77-8e21-0a9b8c7d6e5f
+                      order_id: 71f3c8d0-9a2b-4e6f-b1c4-8d7e6f5a4b3c
+                      asset: silver
+                      type: SELL
+                      quantity: 10
+                      price_per_gram: 1320
+                      total_cash_krw: 13200
+                      matched_at: "2026-07-27T13:58:02+09:00"
+                  next_cursor: MTc4NDEwNzA4Mnw1YzJlOWE0NA
+                  has_more: true
+        "400":
+          description: |
+            `asset` 이 gold/silver 가 아니거나, `from`·`to` 가 RFC3339 가 아니거나,
+            `from` 이 `to` 보다 늦거나, `limit` 이 1~200 밖이거나, `cursor` 를
+            해석할 수 없음 (`U0005`)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "503":
+          description: 체결 이력을 조회할 수 없음 (`S0001`)
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorEnvelope" }
@@ -1576,6 +1690,44 @@ components:
         candles:
           type: array
           items: { $ref: "#/components/schemas/Candle" }
+
+    Trade:
+      type: object
+      description: 체결 한 건. 방향과 주문 ID 는 **호출자 기준**이다
+      required:
+        [matched_id, order_id, asset, type, quantity,
+         price_per_gram, total_cash_krw, matched_at]
+      properties:
+        matched_id: { type: string, description: 체결 ID }
+        order_id:
+          type: string
+          description: 호출자 쪽 주문 ID. 상대방 주문 ID 는 노출하지 않는다
+        asset: { type: string, enum: [gold, silver] }
+        type:
+          type: string
+          enum: [BUY, SELL]
+          description: 호출자가 매수자였으면 `BUY`, 매도자였으면 `SELL`
+        quantity: { type: number, format: double, description: 체결 수량(g) }
+        price_per_gram: { type: integer, format: int64, description: 체결 단가(원/g) }
+        total_cash_krw: { type: integer, format: int64, description: 실제로 이동한 현금(원) }
+        matched_at: { type: string, format: date-time }
+
+    TradeHistory:
+      type: object
+      required: [trades, next_cursor, has_more]
+      properties:
+        trades:
+          type: array
+          description: 최신순. 체결이 없으면 빈 배열이다(`null` 아님)
+          items: { $ref: "#/components/schemas/Trade" }
+        next_cursor:
+          type: string
+          description: |
+            다음 페이지 요청의 `cursor` 에 그대로 넣는다. 불투명 문자열이므로
+            파싱하지 말 것. `has_more` 가 `false` 면 빈 문자열이다
+        has_more:
+          type: boolean
+          description: 다음 페이지 존재 여부
 
     TradeRequest:
       type: object

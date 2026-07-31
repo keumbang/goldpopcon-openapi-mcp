@@ -50,9 +50,15 @@ export interface OperationSummary {
   isOpenApi: boolean;
 }
 
+/**
+ * quote 버킷 경로 — 스펙 §6 rate limit 표와 같은 목록이며, 그대로 "권한 플래그 없이
+ * 모든 키 허용" 경로이기도 하다. /orders/history 는 붙지만 /orders/preview 는 아니다.
+ */
+const QUOTE_PATHS = /\/prices|\/balances|\/orders\/history/;
+
 /** 권한 스코프 추론 — 스펙 §3 + 태그. */
 function scopeFor(path: string, tags: string[]): string {
-  if (/\/prices|\/balances/.test(path)) return "none (모든 키 허용)";
+  if (QUOTE_PATHS.test(path)) return "none (모든 키 허용)";
   if (/\/buy\/|\/sell\/|getOrderPreview|\/preview/.test(path)) return "allow_trade";
   if (/\/virtual-accounts/.test(path)) return "allow_vacct";
   if (/\/payouts/.test(path)) return "allow_payout";
@@ -77,7 +83,7 @@ export function listOperations(): OperationSummary[] {
       const tags: string[] = op.tags ?? [];
       const params = paramsOf(spec, op, pathItem);
       const needsIdempotency = params.some((p) => p?.name === "Idempotency-Key");
-      const rateBucket: "quote" | "trade" = /\/prices|\/balances/.test(path) ? "quote" : "trade";
+      const rateBucket: "quote" | "trade" = QUOTE_PATHS.test(path) ? "quote" : "trade";
       out.push({
         operationId: op.operationId ?? `${m} ${path}`,
         method: m,
@@ -193,7 +199,7 @@ export function getOperation(operationId: string): OperationDetail | null {
         tags,
         scope: scopeFor(path, tags),
         needsIdempotency: params.some((p) => p?.name === "Idempotency-Key"),
-        rateBucket: /\/prices|\/balances/.test(path) ? "quote" : "trade",
+        rateBucket: QUOTE_PATHS.test(path) ? "quote" : "trade",
         isOpenApi: path.startsWith("/open/"),
         parameters: params.map((p) => ({
           name: p.name,
