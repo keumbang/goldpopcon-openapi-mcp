@@ -45,6 +45,46 @@ Open API 키(`gpk_` 액세스 키 + `sk_` 시크릿 키)는 **골드팝콘 앱�
 
 자금 이동 엔드포인트를 실제로 호출하려면 `generate_signed_request` 로 코드를 받아 개발자 본인 환경에서 실행한다.
 
+#### 읽기 자동화 — 키는 env 로
+
+LLM 이 시세·잔고를 반복 조회하는 자동화라면 `accessKey`/`secretKey` **인자를 생략**하고 env 로 준다. 인자로 넘긴 `sk_` 는 호출마다 모델 컨텍스트·트랜스크립트·클라이언트 로그에 평문으로 남는다.
+
+```json
+{
+  "mcpServers": {
+    "keumbang-openapi": {
+      "command": "npx",
+      "args": ["-y", "@keumbang/openapi-mcp"],
+      "env": {
+        "KEUMBANG_MCP_ALLOW_LIVE": "true",
+        "KEUMBANG_ACCESS_KEY": "gpk_...",
+        "KEUMBANG_SECRET_KEY": "sk_..."
+      }
+    }
+  }
+}
+```
+
+env fallback 은 `call_api`(조회 전용)에만 있다. `sign_request` 는 `buyAsset` 서명까지 만들 수 있어 열지 않았다 — 열면 에이전트가 사람 개입 없이 유효한 자금 이동 서명을 찍어낸다.
+
+`call_api` 는 `structuredContent` 로도 응답한다 — 마크다운 파싱 없이 값을 바로 쓴다.
+
+```json
+{
+  "operationId": "getPrices",
+  "url": "https://api.goldpopcon.com/api/open/v1/prices",
+  "status": 200,
+  "ok": true,
+  "data": { "...": "응답 본문 JSON 그대로" },
+  "rateLimit": { "limit": 600, "remaining": 599, "reset": 1730000000, "retryAfter": null }
+}
+```
+
+- `data` 형태는 엔드포인트마다 다르다 — `get_endpoint` 의 성공 응답 예제가 스펙이다.
+- 4xx/5xx 도 도구 에러가 아니라 `status`/`ok` 로 온다. 루프가 분기해서 처리한다.
+- JSON 이 아닌 본문(게이트웨이 HTML 오류 등)은 `data` 대신 `raw` 로 온다.
+- 429 면 `rateLimit.retryAfter` 에 대기 초. quote 600/분, trade 60/분.
+
 ## 설치 · 빌드
 
 ```bash
@@ -84,6 +124,8 @@ Claude Desktop `claude_desktop_config.json`, Cursor `~/.cursor/mcp.json`. 개발
 |---|---|---|
 | `KEUMBANG_OPENAPI_SPEC` | 번들 `spec/openapi.yaml` | 스펙 파일 경로 재지정 |
 | `KEUMBANG_MCP_ALLOW_LIVE` | (없음) | `true` 면 `call_api`(조회 전용·production) 활성화 |
+| `KEUMBANG_ACCESS_KEY` | (없음) | `call_api` 액세스 키 기본값 — 인자 생략 시 사용 |
+| `KEUMBANG_SECRET_KEY` | (없음) | `call_api` 시크릿 키 기본값 — 반복 호출 자동화에서 권장 |
 
 ## 예시 대화
 

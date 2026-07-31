@@ -25,7 +25,7 @@ import {
 import { generateCode, type Language } from "./codegen.js";
 import { signRequest, verifySignature, type HttpMethod } from "./signing.js";
 
-const server = new McpServer({ name: "keumbang-openapi-mcp", version: "0.2.0" });
+const server = new McpServer({ name: "keumbang-openapi-mcp", version: "0.3.0" });
 
 const text = (s: string) => ({ content: [{ type: "text" as const, text: s }] });
 const errText = (s: string) => ({ content: [{ type: "text" as const, text: s }], isError: true });
@@ -388,6 +388,13 @@ server.tool(
 //   3. 서버 고정 — 인자로 못 바꾼다(임의 url 거부)
 //   4. GET 강제 — 자금 이동 메서드 원천 차단
 //
+// 키는 인자 없이 env(KEUMBANG_ACCESS_KEY / KEUMBANG_SECRET_KEY)로도 준다.
+// 읽기 폴링을 LLM 이 반복 호출하는 자동화에서는 인자로 넘긴 sk_ 가 매 호출마다
+// 모델 컨텍스트·트랜스크립트·클라이언트 로그에 평문으로 남는다. env 로 주면
+// 서버 프로세스 안에만 있다. env fallback 을 call_api 에만 두는 이유는
+// sign_request 가 buyAsset 서명까지 만들어내기 때문이다 — 그쪽까지 열면
+// 에이전트가 사람 개입 없이 유효한 자금 이동 서명을 찍어낼 수 있다.
+//
 // 3의 대상은 스펙의 유일한 서버인 production 이다. 예전에는 staging 고정이었으나
 // staging 은 공개 스펙에서 빠졌고(대신 /open/demo/v1 을 쓴다), 그 상태로 두면
 // 해석이 항상 실패해 도구가 아예 동작하지 않았다. 화이트리스트가 조회 4개(GET)뿐이라
@@ -395,15 +402,36 @@ server.tool(
 const READONLY_LIVE_OPS = new Set(["getPrices", "getBalances", "getPriceHistory", "getOrderPreview"]);
 
 if (process.env.KEUMBANG_MCP_ALLOW_LIVE === "true") {
-  server.tool(
+  server.registerTool(
     "call_api",
-    "골드팝콘 Open API를 실제로 호출한다(조회 전용 · production 고정). getPrices/getBalances/getPriceHistory/getOrderPreview 만 허용 — 자금 이동 엔드포인트는 불가. secret_key 로 로컬 서명 후 요청한다.",
     {
-      operationId: z.enum(["getPrices", "getBalances", "getPriceHistory", "getOrderPreview"]),
-      accessKey: z.string().describe("gpk_... 액세스 키"),
-      secretKey: z.string().describe("sk_... 시크릿 키. 로컬 서명에만 사용"),
-      query: z.record(z.union([z.string(), z.number(), z.boolean()])).optional().describe("쿼리 파라미터. 예 getPriceHistory: {asset:'gold', bucket:'1h'}"),
-      pathParams: z.record(z.string()).optional(),
+      description:
+        "골드팝콘 Open API를 실제로 호출한다(조회 전용 · production 고정). getPrices/getBalances/getPriceHistory/getOrderPreview 만 허용 — 자금 이동 엔드포인트는 불가. 키는 env(KEUMBANG_ACCESS_KEY/KEUMBANG_SECRET_KEY)에 있으면 인자 생략 가능 — 반복 호출 자동화에서는 생략을 권장한다. 응답은 structuredContent 로도 준다(data 에 파싱된 본문, rateLimit.retryAfter 에 429 대기 초).",
+      annotations: { readOnlyHint: true, openWorldHint: true },
+      inputSchema: {
+        operationId: z.enum(["getPrices", "getBalances", "getPriceHistory", "getOrderPreview"]),
+        accessKey: z.string().optional().describe("gpk_... 액세스 키. 생략 시 env KEUMBANG_ACCESS_KEY"),
+        secretKey: z.string().optional().describe("sk_... 시크릿 키. 생략 시 env KEUMBANG_SECRET_KEY. 로컬 서명에만 사용"),
+        query: z.record(z.union([z.string(), z.number(), z.boolean()])).optional().describe("쿼리 파라미터. 예 getPriceHistory: {asset:'gold', bucket:'1h'}"),
+        pathParams: z.record(z.string()).optional(),
+      },
+      // 파이프라인이 정규식으로 코드펜스를 긁지 않도록 응답을 그대로 구조화해 준다.
+      // data 는 엔드포인트마다 형태가 달라 스키마를 고정하지 않는다 — 형태는
+      // get_endpoint 의 성공 응답 예제가 스펙이다.
+      outputSchema: {
+        operationId: z.string(),
+        url: z.string(),
+        status: z.number().describe("HTTP 상태 코드. 4xx/5xx 도 isError 가 아니라 이 값으로 온다"),
+        ok: z.boolean().describe("2xx 여부"),
+        data: z.unknown().optional().describe("응답 본문 JSON. 파싱 실패 시 없음(raw 참조)"),
+        raw: z.string().optional().describe("JSON 파싱 실패 시 본문 원문"),
+        rateLimit: z.object({
+          limit: z.number().nullable(),
+          remaining: z.number().nullable(),
+          reset: z.number().nullable(),
+          retryAfter: z.number().nullable().describe("429 일 때 대기 초. 그 외 null"),
+        }),
+      },
     },
     async ({ operationId, accessKey, secretKey, query, pathParams }) => {
       const op = getOperation(operationId);
@@ -412,11 +440,19 @@ if (process.env.KEUMBANG_MCP_ALLOW_LIVE === "true") {
       if (!READONLY_LIVE_OPS.has(operationId)) return errText(`'${operationId}' 는 라이브 호출 화이트리스트에 없다(조회 전용).`);
       if (op.method !== "GET") return errText(`라이브 호출은 GET 만 허용. '${operationId}' 는 ${op.method}.`);
 
+      const ak = accessKey ?? process.env.KEUMBANG_ACCESS_KEY;
+      const sk = secretKey ?? process.env.KEUMBANG_SECRET_KEY;
+      if (!ak || !sk)
+        return errText(
+          "키 없음. accessKey/secretKey 인자로 주거나 env KEUMBANG_ACCESS_KEY / KEUMBANG_SECRET_KEY 를 설정한다. " +
+            "반복 호출 자동화라면 env 쪽 — 인자로 준 secret 은 매 호출 모델 컨텍스트에 남는다.",
+        );
+
       const { url: subPath, error: pathErr } = substitutePath(op.path, pathParams);
       if (pathErr) return errText(pathErr);
       const { url: base, error: srvErr } = resolveServerUrl("production"); // 고정 — 인자로 못 바꾼다
       if (srvErr || !base) return errText(srvErr ?? "서버 url 해석 실패");
-      const res = signRequest({ accessKey, secretKey, method: "GET", query: query as any });
+      const res = signRequest({ accessKey: ak, secretKey: sk, method: "GET", query: query as any });
 
       const qs = query && Object.keys(query).length > 0 ? "?" + new URLSearchParams(query as Record<string, string>).toString() : "";
       const target = base + subPath + qs;
@@ -430,10 +466,43 @@ if (process.env.KEUMBANG_MCP_ALLOW_LIVE === "true") {
           signal: controller.signal,
         });
         const bodyText = await resp.text();
-        const rl = ["limit", "remaining", "reset"].map((k) => `${k}=${resp.headers.get("x-ratelimit-" + k) ?? "-"}`).join(" ");
-        return text(
-          `# ${operationId} @ production\n${op.method} ${target}\nHTTP ${resp.status}   rate[${rl}]\n\n\`\`\`json\n${bodyText}\n\`\`\``,
-        );
+        const num = (h: string) => {
+          const v = resp.headers.get(h);
+          return v !== null && v.trim() !== "" && Number.isFinite(Number(v)) ? Number(v) : null;
+        };
+        const rateLimit = {
+          limit: num("x-ratelimit-limit"),
+          remaining: num("x-ratelimit-remaining"),
+          reset: num("x-ratelimit-reset"),
+          // 폴링 루프가 429 를 그냥 재시도하면 밴을 늘린다 — 대기 시간을 명시한다.
+          retryAfter: resp.status === 429 ? num("retry-after") : null,
+        };
+        let data: unknown;
+        let raw: string | undefined;
+        try {
+          data = JSON.parse(bodyText);
+        } catch {
+          raw = bodyText; // 게이트웨이 HTML 오류 등
+        }
+
+        const rl = (["limit", "remaining", "reset"] as const).map((k) => `${k}=${rateLimit[k] ?? "-"}`).join(" ");
+        const retry = rateLimit.retryAfter !== null ? `\n\n> ⚠️ rate limit. ${rateLimit.retryAfter}초 대기 후 재시도.` : "";
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `# ${operationId} @ production\n${op.method} ${target}\nHTTP ${resp.status}   rate[${rl}]\n\n\`\`\`json\n${bodyText}\n\`\`\`${retry}`,
+            },
+          ],
+          structuredContent: {
+            operationId,
+            url: target,
+            status: resp.status,
+            ok: resp.ok,
+            ...(raw === undefined ? { data } : { raw }),
+            rateLimit,
+          },
+        };
       } catch (e: any) {
         return errText(`요청 실패: ${e?.name === "AbortError" ? "타임아웃(10s)" : e?.message ?? e}`);
       } finally {
