@@ -62,5 +62,18 @@ jobs:
         run: |
           VERSION=${GITHUB_REF#refs/tags/v}
           jq --arg v "$VERSION" '.version = $v | .packages[0].version = $v' server.json > server.tmp && mv server.tmp server.json
+      # 레지스트리는 tarball 존재를 검증한다. npm 반영이 몇 초 늦으면 404 로 실패하므로
+      # 새 버전이 조회될 때까지 최대 2분 기다린다.
+      - name: npm 반영 대기
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          for i in $(seq 1 24); do
+            if npm view "@keumbang/goldpopcon-openapi-mcp@${VERSION}" version >/dev/null 2>&1; then
+              echo "npm 반영 확인: ${VERSION}"; exit 0
+            fi
+            echo "대기 중 ($i/24)..."; sleep 5
+          done
+          echo "npm 에 ${VERSION} 이 나타나지 않음"; exit 1
+
       - run: ./mcp-publisher login dns --domain goldpopcon.com --private-key "${{ secrets.MCP_PRIVATE_KEY }}"
       - run: ./mcp-publisher publish
