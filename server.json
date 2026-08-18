@@ -10,7 +10,7 @@
   "packages": [
     {
       "registryType": "npm",
-      "identifier": "@keumbang/openapi-mcp",
+      "identifier": "@keumbang/goldpopcon-openapi-mcp",
       "version": "0.3.0",
       "transport": { "type": "stdio" },
       "environmentVariables": [

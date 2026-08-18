@@ -1,5 +1,5 @@
 {
-  "name": "@keumbang/openapi-mcp",
+  "name": "@keumbang/goldpopcon-openapi-mcp",
   "version": "0.3.0",
   "mcpName": "io.github.keumbang/openapi",
   "description": "금방(Keumbang) Open API 코딩 어시스턴트 MCP 서버 — 스펙 조회 · JWT 서명 코드 생성 · 로컬 서명/검증",
@@ -24,7 +24,7 @@
     "url": "https://github.com/keumbang/goldpopcon-openapi-mcp/issues"
   },
   "bin": {
-    "keumbang-openapi-mcp": "dist/index.js"
+    "goldpopcon-openapi-mcp": "dist/index.js"
   },
   "files": [
     "dist/**/*.js",

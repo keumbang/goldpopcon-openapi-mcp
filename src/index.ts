@@ -25,7 +25,7 @@ import {
 import { generateCode, type Language } from "./codegen.js";
 import { signRequest, verifySignature, type HttpMethod } from "./signing.js";
 
-const server = new McpServer({ name: "keumbang-openapi-mcp", version: "0.3.0" });
+const server = new McpServer({ name: "goldpopcon-openapi-mcp", version: "0.3.0" });
 
 const text = (s: string) => ({ content: [{ type: "text" as const, text: s }] });
 const errText = (s: string) => ({ content: [{ type: "text" as const, text: s }], isError: true });
@@ -533,7 +533,7 @@ async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
   // stdio 모드 — stdout 은 프로토콜 전용. 로그는 stderr.
-  process.stderr.write("keumbang-openapi-mcp 시작 (stdio)\n");
+  process.stderr.write("goldpopcon-openapi-mcp 시작 (stdio)\n");
 }
 
 main().catch((e) => {

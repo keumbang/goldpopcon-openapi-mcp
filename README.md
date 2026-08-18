@@ -1,9 +1,9 @@
-# @keumbang/openapi-mcp
+# @keumbang/goldpopcon-openapi-mcp
 
-[![npm](https://img.shields.io/npm/v/@keumbang/openapi-mcp)](https://www.npmjs.com/package/@keumbang/openapi-mcp)
+[![npm](https://img.shields.io/npm/v/@keumbang/goldpopcon-openapi-mcp)](https://www.npmjs.com/package/@keumbang/goldpopcon-openapi-mcp)
 [![CI](https://github.com/keumbang/goldpopcon-openapi-mcp/actions/workflows/publish.yml/badge.svg)](https://github.com/keumbang/goldpopcon-openapi-mcp/actions/workflows/publish.yml)
-[![node](https://img.shields.io/node/v/@keumbang/openapi-mcp)](https://nodejs.org)
-[![license](https://img.shields.io/npm/l/@keumbang/openapi-mcp)](./LICENSE)
+[![node](https://img.shields.io/node/v/@keumbang/goldpopcon-openapi-mcp)](https://nodejs.org)
+[![license](https://img.shields.io/npm/l/@keumbang/goldpopcon-openapi-mcp)](./LICENSE)
 
 금방(Keumbang) Open API **코딩 어시스턴트 MCP 서버**. Claude Desktop · Cursor · Cline 등 MCP 클라이언트에 붙여, 금·은 거래 API 연동 코드를 정확히 짜도록 돕는다.
 
@@ -52,9 +52,9 @@ LLM 이 시세·잔고를 반복 조회하는 자동화라면 `accessKey`/`secre
 ```json
 {
   "mcpServers": {
-    "keumbang-openapi": {
+    "goldpopcon-openapi": {
       "command": "npx",
-      "args": ["-y", "@keumbang/openapi-mcp"],
+      "args": ["-y", "@keumbang/goldpopcon-openapi-mcp"],
       "env": {
         "KEUMBANG_MCP_ALLOW_LIVE": "true",
         "KEUMBANG_ACCESS_KEY": "gpk_...",
@@ -101,16 +101,16 @@ CLI 한 줄로 붙는 클라이언트:
 
 ```bash
 # Claude Code
-claude mcp add keumbang-openapi -- npx -y @keumbang/openapi-mcp
+claude mcp add goldpopcon-openapi -- npx -y @keumbang/goldpopcon-openapi-mcp
 
 # Codex CLI  (~/.codex/config.toml 에 기록된다. 세션에서 /mcp 로 연결 확인)
-codex mcp add keumbang-openapi -- npx -y @keumbang/openapi-mcp
+codex mcp add goldpopcon-openapi -- npx -y @keumbang/goldpopcon-openapi-mcp
 ```
 
 설정 파일 직접 편집(Claude Desktop `claude_desktop_config.json`, Cursor `~/.cursor/mcp.json`, Gemini CLI `~/.gemini/settings.json`):
 
 ```json
-{ "mcpServers": { "keumbang-openapi": { "command": "npx", "args": ["-y", "@keumbang/openapi-mcp"] } } }
+{ "mcpServers": { "goldpopcon-openapi": { "command": "npx", "args": ["-y", "@keumbang/goldpopcon-openapi-mcp"] } } }
 ```
 
 Gemini CLI 는 `PATH` 해석이 불안정하다 — 서버가 안 뜨면 `command` 를 `which npx` 로 얻은 절대경로로 바꾼다.
@@ -120,7 +120,7 @@ Gemini CLI 는 `PATH` 해석이 불안정하다 — 서버가 안 뜨면 `comman
 ```json
 {
   "mcpServers": {
-    "keumbang-openapi": {
+    "goldpopcon-openapi": {
       "command": "node",
       "args": ["/절대경로/goldpopcon-openapi-mcp/dist/index.js"]
     }
