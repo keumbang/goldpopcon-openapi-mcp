@@ -15,13 +15,13 @@
     "trading",
     "jwt"
   ],
-  "homepage": "https://github.com/keumbang/keumbang-openapi-mcp#readme",
+  "homepage": "https://github.com/keumbang/goldpopcon-openapi-mcp#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/keumbang/keumbang-openapi-mcp.git"
+    "url": "git+https://github.com/keumbang/goldpopcon-openapi-mcp.git"
   },
   "bugs": {
-    "url": "https://github.com/keumbang/keumbang-openapi-mcp/issues"
+    "url": "https://github.com/keumbang/goldpopcon-openapi-mcp/issues"
   },
   "bin": {
     "keumbang-openapi-mcp": "dist/index.js"

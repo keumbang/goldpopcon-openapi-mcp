@@ -3,7 +3,7 @@
   "name": "io.github.keumbang/openapi",
   "description": "금방 Open API MCP 서버 — 스펙 조회·JWT 서명 코드 생성·로컬 서명/검증",
   "repository": {
-    "url": "https://github.com/keumbang/keumbang-openapi-mcp",
+    "url": "https://github.com/keumbang/goldpopcon-openapi-mcp",
     "source": "github"
   },
   "version": "0.3.0",

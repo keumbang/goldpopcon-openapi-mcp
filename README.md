@@ -1,7 +1,7 @@
 # @keumbang/openapi-mcp
 
 [![npm](https://img.shields.io/npm/v/@keumbang/openapi-mcp)](https://www.npmjs.com/package/@keumbang/openapi-mcp)
-[![CI](https://github.com/keumbang/keumbang-openapi-mcp/actions/workflows/publish.yml/badge.svg)](https://github.com/keumbang/keumbang-openapi-mcp/actions/workflows/publish.yml)
+[![CI](https://github.com/keumbang/goldpopcon-openapi-mcp/actions/workflows/publish.yml/badge.svg)](https://github.com/keumbang/goldpopcon-openapi-mcp/actions/workflows/publish.yml)
 [![node](https://img.shields.io/node/v/@keumbang/openapi-mcp)](https://nodejs.org)
 [![license](https://img.shields.io/npm/l/@keumbang/openapi-mcp)](./LICENSE)
 
@@ -88,8 +88,8 @@ env fallback 은 `call_api`(조회 전용)에만 있다. `sign_request` 는 `buy
 ## 설치 · 빌드
 
 ```bash
-git clone https://github.com/keumbang/keumbang-openapi-mcp.git
-cd keumbang-openapi-mcp
+git clone https://github.com/keumbang/goldpopcon-openapi-mcp.git
+cd goldpopcon-openapi-mcp
 npm install
 npm run build       # dist/ 생성
 npm test            # 서명 회귀 테스트
@@ -122,7 +122,7 @@ Gemini CLI 는 `PATH` 해석이 불안정하다 — 서버가 안 뜨면 `comman
   "mcpServers": {
     "keumbang-openapi": {
       "command": "node",
-      "args": ["/절대경로/keumbang-openapi-mcp/dist/index.js"]
+      "args": ["/절대경로/goldpopcon-openapi-mcp/dist/index.js"]
     }
   }
 }
