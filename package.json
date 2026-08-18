@@ -1,7 +1,7 @@
 {
   "name": "@keumbang/goldpopcon-openapi-mcp",
-  "version": "0.3.0",
-  "mcpName": "io.github.keumbang/openapi",
+  "version": "0.3.1",
+  "mcpName": "com.goldpopcon/openapi-mcp",
   "description": "금방(Keumbang) Open API 코딩 어시스턴트 MCP 서버 — 스펙 조회 · JWT 서명 코드 생성 · 로컬 서명/검증",
   "license": "MIT",
   "type": "module",

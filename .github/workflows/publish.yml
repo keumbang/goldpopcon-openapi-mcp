@@ -53,12 +53,14 @@ jobs:
 
       - run: npm publish --access public
 
-      # MCP 레지스트리 등재. OIDC 인증이라 별도 시크릿 불필요(id-token: write 로 충분).
+      # MCP 레지스트리 등재. 네임스페이스가 com.goldpopcon/* 이라 DNS 인증을 쓴다
+      # (GitHub 인증은 io.github.<계정|org>/* 만 주는데, org 네임스페이스가 열리지 않았다).
+      # 도메인 소유 증명은 goldpopcon.com 의 TXT 레코드 v=MCPv1; k=ed25519; p=<공개키>.
       - name: mcp-publisher 설치
         run: curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" | tar xz mcp-publisher
       - name: server.json 버전을 태그에 맞춤
         run: |
           VERSION=${GITHUB_REF#refs/tags/v}
           jq --arg v "$VERSION" '.version = $v | .packages[0].version = $v' server.json > server.tmp && mv server.tmp server.json
-      - run: ./mcp-publisher login github-oidc
+      - run: ./mcp-publisher login dns --domain goldpopcon.com --private-key "${{ secrets.MCP_PRIVATE_KEY }}"
       - run: ./mcp-publisher publish

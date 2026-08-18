@@ -25,7 +25,7 @@ import {
 import { generateCode, type Language } from "./codegen.js";
 import { signRequest, verifySignature, type HttpMethod } from "./signing.js";
 
-const server = new McpServer({ name: "goldpopcon-openapi-mcp", version: "0.3.0" });
+const server = new McpServer({ name: "goldpopcon-openapi-mcp", version: "0.3.1" });
 
 const text = (s: string) => ({ content: [{ type: "text" as const, text: s }] });
 const errText = (s: string) => ({ content: [{ type: "text" as const, text: s }], isError: true });

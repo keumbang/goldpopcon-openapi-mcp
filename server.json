@@ -1,17 +1,17 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
-  "name": "io.github.keumbang/openapi",
+  "name": "com.goldpopcon/openapi-mcp",
   "description": "금방 Open API MCP 서버 — 스펙 조회·JWT 서명 코드 생성·로컬 서명/검증",
   "repository": {
     "url": "https://github.com/keumbang/goldpopcon-openapi-mcp",
     "source": "github"
   },
-  "version": "0.3.0",
+  "version": "0.3.1",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "@keumbang/goldpopcon-openapi-mcp",
-      "version": "0.3.0",
+      "version": "0.3.1",
       "transport": { "type": "stdio" },
       "environmentVariables": [
         {
