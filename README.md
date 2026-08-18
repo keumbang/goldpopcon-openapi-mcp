@@ -36,7 +36,7 @@ Open API 키(`gpk_` 액세스 키 + `sk_` 시크릿 키)는 **골드팝콘 앱�
 
 ### call_api — 조회 전용 라이브 호출
 
-기본 **비활성**. `KEUMBANG_MCP_ALLOW_LIVE=true` 일 때만 등록된다. 4중 안전장치로 자금 이동을 원천 차단:
+기본 **비활성**. `GOLDPOPCON_MCP_ALLOW_LIVE=true` 일 때만 등록된다. 4중 안전장치로 자금 이동을 원천 차단:
 
 1. **env 게이트** — 변수 없으면 도구 자체가 없다
 2. **화이트리스트** — `getPrices` / `getBalances` / `getPriceHistory` / `getOrderPreview` / `getTradeHistory` 만. `buy`·`sell`·`payout`·`virtual-accounts` 는 라이브 불가(코드 생성만)
@@ -56,9 +56,9 @@ LLM 이 시세·잔고를 반복 조회하는 자동화라면 `accessKey`/`secre
       "command": "npx",
       "args": ["-y", "@keumbang/goldpopcon-openapi-mcp"],
       "env": {
-        "KEUMBANG_MCP_ALLOW_LIVE": "true",
-        "KEUMBANG_ACCESS_KEY": "gpk_...",
-        "KEUMBANG_SECRET_KEY": "sk_..."
+        "GOLDPOPCON_MCP_ALLOW_LIVE": "true",
+        "GOLDPOPCON_ACCESS_KEY": "gpk_...",
+        "GOLDPOPCON_SECRET_KEY": "sk_..."
       }
     }
   }
@@ -134,10 +134,10 @@ Gemini CLI 는 `PATH` 해석이 불안정하다 — 서버가 안 뜨면 `comman
 
 | 변수 | 기본 | 의미 |
 |---|---|---|
-| `KEUMBANG_OPENAPI_SPEC` | 번들 `spec/openapi.yaml` | 스펙 파일 경로 재지정 |
-| `KEUMBANG_MCP_ALLOW_LIVE` | (없음) | `true` 면 `call_api`(조회 전용·production) 활성화 |
-| `KEUMBANG_ACCESS_KEY` | (없음) | `call_api` 액세스 키 기본값 — 인자 생략 시 사용 |
-| `KEUMBANG_SECRET_KEY` | (없음) | `call_api` 시크릿 키 기본값 — 반복 호출 자동화에서 권장 |
+| `GOLDPOPCON_OPENAPI_SPEC` | 번들 `spec/openapi.yaml` | 스펙 파일 경로 재지정 |
+| `GOLDPOPCON_MCP_ALLOW_LIVE` | (없음) | `true` 면 `call_api`(조회 전용·production) 활성화 |
+| `GOLDPOPCON_ACCESS_KEY` | (없음) | `call_api` 액세스 키 기본값 — 인자 생략 시 사용 |
+| `GOLDPOPCON_SECRET_KEY` | (없음) | `call_api` 시크릿 키 기본값 — 반복 호출 자동화에서 권장 |
 
 ## 예시 대화
 

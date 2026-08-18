@@ -9,7 +9,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 
 /** 스펙 경로: 환경변수 우선, 없으면 번들 사본. */
 export function specPath(): string {
-  return process.env.KEUMBANG_OPENAPI_SPEC ?? resolve(here, "../spec/openapi.yaml");
+  return process.env.GOLDPOPCON_OPENAPI_SPEC ?? resolve(here, "../spec/openapi.yaml");
 }
 
 let cached: any = null;

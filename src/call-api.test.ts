@@ -38,10 +38,10 @@ async function callApi(specFile: string, args: Record<string, unknown>): Promise
   const child = spawn(process.execPath, [join(here, "index.js")], {
     env: {
       ...process.env,
-      KEUMBANG_OPENAPI_SPEC: specFile,
-      KEUMBANG_MCP_ALLOW_LIVE: "true",
-      KEUMBANG_ACCESS_KEY: "gpk_test",
-      KEUMBANG_SECRET_KEY: "sk_test",
+      GOLDPOPCON_OPENAPI_SPEC: specFile,
+      GOLDPOPCON_MCP_ALLOW_LIVE: "true",
+      GOLDPOPCON_ACCESS_KEY: "gpk_test",
+      GOLDPOPCON_SECRET_KEY: "sk_test",
     },
     stdio: ["pipe", "pipe", "pipe"],
   });

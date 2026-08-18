@@ -383,12 +383,12 @@ server.tool(
 // ── call_api (조회 전용 라이브 호출, opt-in) ─────────────────────────────────
 //
 // 다중 안전장치:
-//   1. env KEUMBANG_MCP_ALLOW_LIVE=true 없으면 도구 등록 자체 안 함
+//   1. env GOLDPOPCON_MCP_ALLOW_LIVE=true 없으면 도구 등록 자체 안 함
 //   2. 화이트리스트 — 조회(GET) 5개만. buy/sell/payout/vacct 는 라이브 금지
 //   3. 서버 고정 — 인자로 못 바꾼다(임의 url 거부)
 //   4. GET 강제 — 자금 이동 메서드 원천 차단
 //
-// 키는 인자 없이 env(KEUMBANG_ACCESS_KEY / KEUMBANG_SECRET_KEY)로도 준다.
+// 키는 인자 없이 env(GOLDPOPCON_ACCESS_KEY / GOLDPOPCON_SECRET_KEY)로도 준다.
 // 읽기 폴링을 LLM 이 반복 호출하는 자동화에서는 인자로 넘긴 sk_ 가 매 호출마다
 // 모델 컨텍스트·트랜스크립트·클라이언트 로그에 평문으로 남는다. env 로 주면
 // 서버 프로세스 안에만 있다. env fallback 을 call_api 에만 두는 이유는
@@ -401,17 +401,17 @@ server.tool(
 // production 을 읽어도 자금은 움직이지 않는다.
 const READONLY_LIVE_OPS = new Set(["getPrices", "getBalances", "getPriceHistory", "getOrderPreview", "getTradeHistory"]);
 
-if (process.env.KEUMBANG_MCP_ALLOW_LIVE === "true") {
+if (process.env.GOLDPOPCON_MCP_ALLOW_LIVE === "true") {
   server.registerTool(
     "call_api",
     {
       description:
-        "골드팝콘 Open API를 실제로 호출한다(조회 전용 · production 고정). getPrices/getBalances/getPriceHistory/getOrderPreview/getTradeHistory 만 허용 — 자금 이동 엔드포인트는 불가. 키는 env(KEUMBANG_ACCESS_KEY/KEUMBANG_SECRET_KEY)에 있으면 인자 생략 가능 — 반복 호출 자동화에서는 생략을 권장한다. 응답은 structuredContent 로도 준다(data 에 파싱된 본문, rateLimit.retryAfter 에 429 대기 초).",
+        "골드팝콘 Open API를 실제로 호출한다(조회 전용 · production 고정). getPrices/getBalances/getPriceHistory/getOrderPreview/getTradeHistory 만 허용 — 자금 이동 엔드포인트는 불가. 키는 env(GOLDPOPCON_ACCESS_KEY/GOLDPOPCON_SECRET_KEY)에 있으면 인자 생략 가능 — 반복 호출 자동화에서는 생략을 권장한다. 응답은 structuredContent 로도 준다(data 에 파싱된 본문, rateLimit.retryAfter 에 429 대기 초).",
       annotations: { readOnlyHint: true, openWorldHint: true },
       inputSchema: {
         operationId: z.enum(["getPrices", "getBalances", "getPriceHistory", "getOrderPreview", "getTradeHistory"]),
-        accessKey: z.string().optional().describe("gpk_... 액세스 키. 생략 시 env KEUMBANG_ACCESS_KEY"),
-        secretKey: z.string().optional().describe("sk_... 시크릿 키. 생략 시 env KEUMBANG_SECRET_KEY. 로컬 서명에만 사용"),
+        accessKey: z.string().optional().describe("gpk_... 액세스 키. 생략 시 env GOLDPOPCON_ACCESS_KEY"),
+        secretKey: z.string().optional().describe("sk_... 시크릿 키. 생략 시 env GOLDPOPCON_SECRET_KEY. 로컬 서명에만 사용"),
         query: z.record(z.union([z.string(), z.number(), z.boolean()])).optional().describe("쿼리 파라미터. 예 getPriceHistory: {asset:'gold', bucket:'1h'}"),
         pathParams: z.record(z.string()).optional(),
       },
@@ -440,11 +440,11 @@ if (process.env.KEUMBANG_MCP_ALLOW_LIVE === "true") {
       if (!READONLY_LIVE_OPS.has(operationId)) return errText(`'${operationId}' 는 라이브 호출 화이트리스트에 없다(조회 전용).`);
       if (op.method !== "GET") return errText(`라이브 호출은 GET 만 허용. '${operationId}' 는 ${op.method}.`);
 
-      const ak = accessKey ?? process.env.KEUMBANG_ACCESS_KEY;
-      const sk = secretKey ?? process.env.KEUMBANG_SECRET_KEY;
+      const ak = accessKey ?? process.env.GOLDPOPCON_ACCESS_KEY;
+      const sk = secretKey ?? process.env.GOLDPOPCON_SECRET_KEY;
       if (!ak || !sk)
         return errText(
-          "키 없음. accessKey/secretKey 인자로 주거나 env KEUMBANG_ACCESS_KEY / KEUMBANG_SECRET_KEY 를 설정한다. " +
+          "키 없음. accessKey/secretKey 인자로 주거나 env GOLDPOPCON_ACCESS_KEY / GOLDPOPCON_SECRET_KEY 를 설정한다. " +
             "반복 호출 자동화라면 env 쪽 — 인자로 준 secret 은 매 호출 모델 컨텍스트에 남는다.",
         );
 
