@@ -37,4 +37,20 @@ jobs:
           cache: npm
       - run: npm install -g npm@latest
       - run: npm ci
+
+      # 태그와 package.json 버전이 어긋나면 npm 은 package.json 버전으로 게시되는데
+      # server.json 은 태그 버전을 주장하게 된다 — 레지스트리 검증이 깨지므로 먼저 막는다.
+      - name: 태그 = package.json 버전 확인
+        run: test "v$(node -p "require('./package.json').version")" = "${GITHUB_REF#refs/tags/}"
+
       - run: npm publish --access public
+
+      # MCP 레지스트리 등재. OIDC 인증이라 별도 시크릿 불필요(id-token: write 로 충분).
+      - name: mcp-publisher 설치
+        run: curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" | tar xz mcp-publisher
+      - name: server.json 버전을 태그에 맞춤
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          jq --arg v "$VERSION" '.version = $v | .packages[0].version = $v' server.json > server.tmp && mv server.tmp server.json
+      - run: ./mcp-publisher login github-oidc
+      - run: ./mcp-publisher publish

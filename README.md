@@ -97,11 +97,23 @@ npm test            # 서명 회귀 테스트
 
 ## MCP 클라이언트 등록
 
-배포 후(npm publish 시) — 권장:
+CLI 한 줄로 붙는 클라이언트:
+
+```bash
+# Claude Code
+claude mcp add keumbang-openapi -- npx -y @keumbang/openapi-mcp
+
+# Codex CLI  (~/.codex/config.toml 에 기록된다. 세션에서 /mcp 로 연결 확인)
+codex mcp add keumbang-openapi -- npx -y @keumbang/openapi-mcp
+```
+
+설정 파일 직접 편집(Claude Desktop `claude_desktop_config.json`, Cursor `~/.cursor/mcp.json`, Gemini CLI `~/.gemini/settings.json`):
 
 ```json
 { "mcpServers": { "keumbang-openapi": { "command": "npx", "args": ["-y", "@keumbang/openapi-mcp"] } } }
 ```
+
+Gemini CLI 는 `PATH` 해석이 불안정하다 — 서버가 안 뜨면 `command` 를 `which npx` 로 얻은 절대경로로 바꾼다.
 
 로컬 클론 실행:
 
@@ -116,7 +128,7 @@ npm test            # 서명 회귀 테스트
 }
 ```
 
-Claude Desktop `claude_desktop_config.json`, Cursor `~/.cursor/mcp.json`. 개발 중엔 `command: "npx", args: ["tsx", "/절대경로/.../src/index.ts"]`.
+개발 중엔 `command: "npx", args: ["tsx", "/절대경로/.../src/index.ts"]`.
 
 ## 환경변수
 
