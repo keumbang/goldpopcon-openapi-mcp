@@ -5,7 +5,7 @@
 [![node](https://img.shields.io/node/v/@keumbang/goldpopcon-openapi-mcp)](https://nodejs.org)
 [![license](https://img.shields.io/npm/l/@keumbang/goldpopcon-openapi-mcp)](./LICENSE)
 
-금방(Keumbang) Open API **코딩 어시스턴트 MCP 서버**. Claude Desktop · Cursor · Cline 등 MCP 클라이언트에 붙여, 금·은 거래 API 연동 코드를 정확히 짜도록 돕는다.
+골드팝콘(금방) Open API **코딩 어시스턴트 MCP 서버**. Claude Code · Claude Desktop · Codex CLI · Gemini CLI · Cursor 등 MCP 클라이언트에 붙여, 금·은 거래 API 연동 코드를 정확히 짜도록 돕는다.
 
 ## API 키 발급
 
@@ -30,7 +30,7 @@ Open API 키(`gpk_` 액세스 키 + `sk_` 시크릿 키)는 **골드팝콘 앱�
 | `verify_signature` | 이미 만든 JWT를 서버와 같은 순서로 검증 — 401 원인 진단 |
 | `call_api` *(opt-in)* | 실제 호출 — **조회 전용·production 고정**. env 로 켤 때만 등록 |
 
-리소스: `keumbang://openapi.yaml`(전체 스펙), `keumbang://overview`(서명·한도·에러 산문).
+리소스: `goldpopcon://openapi.yaml`(전체 스펙), `goldpopcon://overview`(서명·한도·에러 산문).
 
 > **보안**: `sign_request`/`verify_signature`/`call_api`에 넘긴 `secret_key`는 로컬 서명에만 쓰이고 서명 결과(JWT)만 전송된다 — secret 자체는 네트워크를 타지 않는다.
 
@@ -154,7 +154,7 @@ Gemini CLI 는 `PATH` 해석이 불안정하다 — 서버가 안 뜨면 `comman
 ```bash
 SPEC_SRC=/path/to/<backend-repo>/docs/openapi.yaml npm run sync-spec
 ```
-(백엔드 repo 를 sibling 으로 클론했으면 `../<backend-repo>/docs/openapi.yaml` 가 기본값이라 인자 없이 `npm run sync-spec`.)
+`SPEC_SRC` 는 **필수**다. 생략하면 원본을 못 찾고 실패한다 — 백엔드 repo 명을 이 repo 에 남기지 않기 위해 기본 경로를 두지 않았다.
 
 갱신 후 `spec/openapi.yaml` 을 커밋한다. 서명 규칙이 서버와 어긋나면 `npm test`(서버 검증 규칙 미러)가 잡는다.
 ```

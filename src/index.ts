@@ -10,7 +10,7 @@
 //   sign_request            secret 로 실제 JWT 계산(로컬 전용) — 디버깅
 //   verify_signature        토큰 로컬 검증 — 401 원인 진단
 // 리소스:
-//   keumbang://openapi.yaml  전체 스펙 원문
+//   goldpopcon://openapi.yaml  전체 스펙 원문
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { readFileSync } from "node:fs";
@@ -514,7 +514,7 @@ if (process.env.KEUMBANG_MCP_ALLOW_LIVE === "true") {
 }
 
 // ── 리소스: 전체 스펙 ────────────────────────────────────────────────────────
-server.resource("openapi-spec", "keumbang://openapi.yaml", async (uri) => ({
+server.resource("openapi-spec", "goldpopcon://openapi.yaml", async (uri) => ({
   contents: [
     {
       uri: uri.href,
@@ -525,7 +525,7 @@ server.resource("openapi-spec", "keumbang://openapi.yaml", async (uri) => ({
 }));
 
 // info.description 산문(서명·한도·에러 전반)도 리소스로.
-server.resource("overview", "keumbang://overview", async (uri) => ({
+server.resource("overview", "goldpopcon://overview", async (uri) => ({
   contents: [{ uri: uri.href, mimeType: "text/markdown", text: getInfoDescription() }],
 }));
 
