@@ -39,7 +39,7 @@ Open API 키(`gpk_` 액세스 키 + `sk_` 시크릿 키)는 **골드팝콘 앱�
 기본 **비활성**. `KEUMBANG_MCP_ALLOW_LIVE=true` 일 때만 등록된다. 4중 안전장치로 자금 이동을 원천 차단:
 
 1. **env 게이트** — 변수 없으면 도구 자체가 없다
-2. **화이트리스트** — `getPrices` / `getBalances` / `getPriceHistory` / `getOrderPreview` 만. `buy`·`sell`·`payout`·`virtual-accounts` 는 라이브 불가(코드 생성만)
+2. **화이트리스트** — `getPrices` / `getBalances` / `getPriceHistory` / `getOrderPreview` / `getTradeHistory` 만. `buy`·`sell`·`payout`·`virtual-accounts` 는 라이브 불가(코드 생성만)
 3. **production 고정** — 인자로 서버를 바꿀 수 없다. 조회 전용이라 production 을 읽어도 자금은 움직이지 않는다
 4. **GET 강제** — 쓰기 메서드 차단
 

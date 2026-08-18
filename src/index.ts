@@ -170,7 +170,7 @@ server.tool(
       "- **인증 실패 = 401, error=null**. 미들웨어 에러는 코드 없이 message 만. '키 없음'과 '서명 불일치'를 구분하지 않는다(access_key 탐색 차단). 로컬 재계산이 유일한 진단 → verify_signature.",
       "- **권한 없음 = 403**. 403 은 서명이 유효했다는 뜻(401 과 구분).",
       "- **429 = rate limit**. quote 600/분, trade 60/분. Retry-After 참고.",
-      "- **체결 이력 조회 API 가 없다.** 주문 응답의 order_id·matched_id·total_cash_krw·matched_at 을 클라이언트가 보관해야 한다. 현재 잔고만 getBalances 로 조회 가능.",
+      "- **체결 이력은 getTradeHistory(GET /open/v1/orders/history)** 로 본다(커서 페이지네이션, 최신순, 앱 주문 체결도 포함). 다만 **미체결(열린) 주문을 조회하는 경로는 없다** — 잔고의 locked_gram·krw_held 로 존재만 알 수 있고 개별 주문은 앱에서 본다.",
       "- **키 관리(발급·폐기) 경로는 이 스펙에 없다.** 앱 내부 API 이며 K0001~K0006 은 그쪽 코드다. 키 발급은 골드팝콘 앱 설치 후 Open API 메뉴에서 — [App Store](https://apps.apple.com/kr/app/id6747214612) · [Google Play](https://play.google.com/store/apps/details?id=com.keumbang.goldpopcorn)",
     ];
     return text(table.join("\n"));
@@ -384,7 +384,7 @@ server.tool(
 //
 // 다중 안전장치:
 //   1. env KEUMBANG_MCP_ALLOW_LIVE=true 없으면 도구 등록 자체 안 함
-//   2. 화이트리스트 — 조회(GET) 4개만. buy/sell/payout/vacct 는 라이브 금지
+//   2. 화이트리스트 — 조회(GET) 5개만. buy/sell/payout/vacct 는 라이브 금지
 //   3. 서버 고정 — 인자로 못 바꾼다(임의 url 거부)
 //   4. GET 강제 — 자금 이동 메서드 원천 차단
 //
@@ -397,19 +397,19 @@ server.tool(
 //
 // 3의 대상은 스펙의 유일한 서버인 production 이다. 예전에는 staging 고정이었으나
 // staging 은 공개 스펙에서 빠졌고(대신 /open/demo/v1 을 쓴다), 그 상태로 두면
-// 해석이 항상 실패해 도구가 아예 동작하지 않았다. 화이트리스트가 조회 4개(GET)뿐이라
+// 해석이 항상 실패해 도구가 아예 동작하지 않았다. 화이트리스트가 조회 5개(GET)뿐이라
 // production 을 읽어도 자금은 움직이지 않는다.
-const READONLY_LIVE_OPS = new Set(["getPrices", "getBalances", "getPriceHistory", "getOrderPreview"]);
+const READONLY_LIVE_OPS = new Set(["getPrices", "getBalances", "getPriceHistory", "getOrderPreview", "getTradeHistory"]);
 
 if (process.env.KEUMBANG_MCP_ALLOW_LIVE === "true") {
   server.registerTool(
     "call_api",
     {
       description:
-        "골드팝콘 Open API를 실제로 호출한다(조회 전용 · production 고정). getPrices/getBalances/getPriceHistory/getOrderPreview 만 허용 — 자금 이동 엔드포인트는 불가. 키는 env(KEUMBANG_ACCESS_KEY/KEUMBANG_SECRET_KEY)에 있으면 인자 생략 가능 — 반복 호출 자동화에서는 생략을 권장한다. 응답은 structuredContent 로도 준다(data 에 파싱된 본문, rateLimit.retryAfter 에 429 대기 초).",
+        "골드팝콘 Open API를 실제로 호출한다(조회 전용 · production 고정). getPrices/getBalances/getPriceHistory/getOrderPreview/getTradeHistory 만 허용 — 자금 이동 엔드포인트는 불가. 키는 env(KEUMBANG_ACCESS_KEY/KEUMBANG_SECRET_KEY)에 있으면 인자 생략 가능 — 반복 호출 자동화에서는 생략을 권장한다. 응답은 structuredContent 로도 준다(data 에 파싱된 본문, rateLimit.retryAfter 에 429 대기 초).",
       annotations: { readOnlyHint: true, openWorldHint: true },
       inputSchema: {
-        operationId: z.enum(["getPrices", "getBalances", "getPriceHistory", "getOrderPreview"]),
+        operationId: z.enum(["getPrices", "getBalances", "getPriceHistory", "getOrderPreview", "getTradeHistory"]),
         accessKey: z.string().optional().describe("gpk_... 액세스 키. 생략 시 env KEUMBANG_ACCESS_KEY"),
         secretKey: z.string().optional().describe("sk_... 시크릿 키. 생략 시 env KEUMBANG_SECRET_KEY. 로컬 서명에만 사용"),
         query: z.record(z.union([z.string(), z.number(), z.boolean()])).optional().describe("쿼리 파라미터. 예 getPriceHistory: {asset:'gold', bucket:'1h'}"),
