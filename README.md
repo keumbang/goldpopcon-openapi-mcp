@@ -4,6 +4,7 @@
 [![CI](https://github.com/keumbang/goldpopcon-openapi-mcp/actions/workflows/publish.yml/badge.svg)](https://github.com/keumbang/goldpopcon-openapi-mcp/actions/workflows/publish.yml)
 [![node](https://img.shields.io/node/v/@keumbang/goldpopcon-openapi-mcp)](https://nodejs.org)
 [![license](https://img.shields.io/npm/l/@keumbang/goldpopcon-openapi-mcp)](./LICENSE)
+[![goldpopcon-openapi-mcp MCP server](https://glama.ai/mcp/servers/keumbang/goldpopcon-openapi-mcp/badges/score.svg)](https://glama.ai/mcp/servers/keumbang/goldpopcon-openapi-mcp)
 
 [![VS Code 설치](https://img.shields.io/badge/VS_Code-설치-0098FF?logo=visualstudiocode&logoColor=white)](https://insiders.vscode.dev/redirect/mcp/install?name=goldpopcon-openapi&config=%7B%22type%22%3A%22stdio%22%2C%22command%22%3A%22npx%22%2C%22args%22%3A%5B%22-y%22%2C%22%40keumbang%2Fgoldpopcon-openapi-mcp%22%5D%7D)
 [![Cursor 설치](https://img.shields.io/badge/Cursor-설치-000000?logo=cursor&logoColor=white)](https://cursor.com/install-mcp?name=goldpopcon-openapi&config=eyJjb21tYW5kIjoibnB4IC15IEBrZXVtYmFuZy9nb2xkcG9wY29uLW9wZW5hcGktbWNwIn0%3D)
