@@ -1,0 +1,5 @@
+# GitHub Pages(deploy from branch: main /docs) 설정.
+# index.md · openapi.yaml 은 `npm run docs` 생성물이다 — 직접 고치지 않는다.
+theme: jekyll-theme-primer
+title: 골드팝콘 Open API
+description: 유저가 직접 발급한 API 키로 금·은을 거래하는 공개 API

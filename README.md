@@ -7,6 +7,12 @@
 
 골드팝콘(금방) Open API **코딩 어시스턴트 MCP 서버**. Claude Code · Claude Desktop · Codex CLI · Gemini CLI · Cursor 등 MCP 클라이언트에 붙여, 금·은 거래 API 연동 코드를 정확히 짜도록 돕는다.
 
+> ### 📘 골드팝콘 Open API 문서 → **[https://keumbang.github.io/goldpopcon-openapi-mcp/](https://keumbang.github.io/goldpopcon-openapi-mcp/)**
+>
+> 엔드포인트 표 · 빠른 시작 · JWT 서명 규격 · 권한/한도 · 멱등성 · 에러 코드. 스펙에서 생성되는 공식 문서다.
+> 요청·응답 스키마는 [Redoc](https://keumbang.github.io/goldpopcon-openapi-mcp/redoc.html) 에서 본다. MCP 없이 직접 연동할 사람도 여기부터 읽으면 된다.
+> (repo 안에서 바로 보려면 [docs/index.md](./docs/index.md))
+
 ## API 키 발급
 
 Open API 키(`gpk_` 액세스 키 + `sk_` 시크릿 키)는 **골드팝콘 앱에서만 발급**된다. 웹 발급 경로는 없다.
@@ -156,7 +162,9 @@ SPEC_SRC=/path/to/<backend-repo>/docs/openapi.yaml npm run sync-spec
 ```
 `SPEC_SRC` 는 **필수**다. 생략하면 원본을 못 찾고 실패한다 — 백엔드 repo 명을 이 repo 에 남기지 않기 위해 기본 경로를 두지 않았다.
 
-갱신 후 `spec/openapi.yaml` 을 커밋한다. 서명 규칙이 서버와 어긋나면 `npm test`(서버 검증 규칙 미러)가 잡는다.
+`dist/` 가 있으면 sync-spec 이 문서 사이트(`docs/index.md` · `docs/openapi.yaml`)도 같이 다시 만든다. 스펙만 따로 갱신했다면 `npm run docs` 로 맞춘다 — 둘 다 생성물이라 직접 고치지 않는다. 문서 내용을 바꾸려면 백엔드 스펙의 `info.description` 을 고친다. 손으로 쓰는 파일은 `docs/_config.yml` 과 `docs/redoc.html` 둘뿐이다.
+
+갱신 후 `spec/openapi.yaml` 과 `docs/` 를 커밋한다. main 에 푸시되면 GitHub Pages 가 사이트를 다시 배포한다. 서명 규칙이 서버와 어긋나면 `npm test`(서버 검증 규칙 미러)가 잡는다.
 ```
-<backend-repo>/docs/openapi.yaml  ──sync-spec──▶  spec/openapi.yaml
+<backend-repo>/docs/openapi.yaml  ──sync-spec──▶  spec/openapi.yaml  ──gen-docs──▶  docs/  ──Pages──▶  keumbang.github.io
 ```

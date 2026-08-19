@@ -18,3 +18,11 @@ if (!existsSync(src)) {
 }
 copyFileSync(src, dst);
 console.log(`synced: ${src} -> ${dst}`);
+
+// docs/ 사이트는 스펙에서 생성된다 — 스펙만 갱신하고 문서를 잊으면 즉시 어긋난다.
+// dist 가 없으면(클론 직후) 건너뛴다.
+if (existsSync(resolve(here, "../dist/spec.js"))) {
+  await import("./gen-docs.mjs");
+} else {
+  console.log("dist 없음 — docs/ 갱신은 `npm run docs`");
+}
